@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { resolveUploadUrl } from '@/lib/upload-url';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 type RecordValue = Record<string, unknown>;
@@ -277,7 +277,15 @@ function isOutgoingMessage(message: Message, currentRole: string | undefined) {
   return currentRole ? sender === currentRole.toLowerCase() : sender !== 'merchant';
 }
 
-export default function ChatPage() {
+function ChatLoading() {
+  return (
+    <div className="grid h-full place-items-center bg-[#f7f7fb] text-sm text-slate-500">
+      Loading chat...
+    </div>
+  );
+}
+
+function ChatPageContent() {
   const { user, isAuthenticated, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -671,11 +679,7 @@ export default function ChatPage() {
   };
 
   if (loading) {
-    return (
-      <div className="grid h-full place-items-center bg-[#f7f7fb] text-sm text-slate-500">
-        Loading chat...
-      </div>
-    );
+    return <ChatLoading />;
   }
 
   return (
@@ -1074,5 +1078,13 @@ export default function ChatPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<ChatLoading />}>
+      <ChatPageContent />
+    </Suspense>
   );
 }

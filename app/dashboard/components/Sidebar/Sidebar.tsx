@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
@@ -130,7 +130,11 @@ function isStaffSidebarRole(role: string | undefined): role is StaffSidebarRole 
   return role === 'approver' || role === 'checker';
 }
 
-export default function Sidebar() {
+function SidebarFallback() {
+  return <aside className="hidden w-[250px] shrink-0 border-r border-slate-200 bg-white lg:block" />;
+}
+
+function SidebarContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -259,5 +263,13 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+export default function Sidebar() {
+  return (
+    <Suspense fallback={<SidebarFallback />}>
+      <SidebarContent />
+    </Suspense>
   );
 }
