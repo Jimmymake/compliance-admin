@@ -33,7 +33,7 @@ The merchant logs in with a normal user account, fills onboarding forms, submits
 2. Backend creates a `User` record with `role = "merchant"` and a generated `merchantId`.
 3. Backend creates an empty `Merchant` onboarding record if it does not exist.
 4. Merchant logs in with email and password.
-5. JWT includes `userId`, `merchantId`, `role`, `platformId`, `name`, `email`, and `profilePic`.
+5. JWT includes `userId`, `merchantId`, `role`, `platformId`, `name`, `email`, `profilePic`, `businessCategory`, and `registeredBusiness`.
 6. Merchant lands on the onboarding dashboard.
 7. Merchant fills step 1: company information.
 8. Merchant fills step 2: UBO details.

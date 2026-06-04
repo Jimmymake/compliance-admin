@@ -15,6 +15,15 @@ It excludes:
 - Platform backend session-generation endpoints
 - Internal server-to-server endpoints
 
+Final merchant statuses are locked. Once the overall status is `approved` or `rejected`, checker actions that would alter review state or overall status return `409`:
+
+```json
+{
+  "message": "Merchant application is already approved. Final merchant status cannot be altered.",
+  "status": "approved"
+}
+```
+
 ## Authentication
 
 Checker access uses the same JWT/session flow as other users.
@@ -184,6 +193,12 @@ These endpoints are accessible to checker, approver, or admin roles, but they ar
 
 appears when the role is missing or unauthorized for shared endpoints.
 
+### Shared merchant data responses
+
+`GET /api/admin/merchants`, `GET /api/admin/merchants/:merchantId`, and `GET /api/admin/reviews/pending` return full Merchant records, excluding only the internal Mongoose `__v` field. The `merchant` object includes fields such as `_id`, `platformId`, `platformReferenceId`, `merchantId`, `userId`, contact/profile fields, `businessCategory`, `registeredBusiness`, `onboardingStatus`, `onboardingSteps`, approval/rejection audit fields, `adminNotes`, `adminAttachment`, `createdAt`, and `updatedAt`.
+
+`GET /api/admin/merchants/:merchantId` also returns full onboarding step documents under `steps.companyinformation`, `steps.ubo`, `steps.paymentandprosessing`, `steps.settlmentbankdetails`, `steps.riskmanagement`, and `steps.kycdocs`.
+
 ## Checker-Specific Endpoints
 
 Checkers review merchant data and documents. They can mark steps as reviewed, add notes, and submit the final checker review decision, but they cannot approve or reject onboarding steps or the overall merchant application.
@@ -204,9 +219,12 @@ Sends a message in the merchant conversation.
 {
   "merchantId": "merchant_xxxxxxxx",
   "messageType": "text",
-  "text": "Please confirm the settlement bank document. 👍"
+  "text": "Please confirm the settlement bank document. 👍",
+  "replyToMessageId": "66f1c2a0c2f6a01234567890"
 }
 ```
+
+`replyToMessageId` is optional. When present, the backend stores a `replyTo` snapshot on the new message so the frontend can show a reply preview above the message.
 
 Emoji are sent as normal Unicode inside `text`. Messages can also include uploaded `attachments` using multipart form data. Chat accepts any attachment MIME type, but each file must be `10MB` or smaller.
 
@@ -255,7 +273,9 @@ Marks all checker notifications as read.
 
 ### `POST /api/admin/merchants/:merchantId/steps/:stepName/review`
 
-Marks a specific onboarding step as reviewed.
+Marks a submitted onboarding step as reviewed.
+
+The checker reviews the step as a whole. Field/item-level review is not required before marking the step reviewed.
 
 #### Request payload
 
@@ -288,6 +308,62 @@ Marks a specific onboarding step as reviewed.
 
 ```json
 { "message": "Merchant must be awaiting review before checker review begins" }
+```
+
+### `GET /api/admin/merchants/:merchantId/steps/:stepName/items/reviews`
+
+Returns the submitted items for any onboarding step and their individual checker/approver statuses.
+
+This endpoint is optional detail for UI display or audit history. It is not required for checker workflow progression.
+
+Valid `stepName` values: `companyinformation`, `ubo`, `paymentandprosessing`, `settlmentbankdetails`, `riskmanagement`, `kycdocs`.
+
+#### Successful response
+
+```json
+{
+  "merchantId": "merchant_xxxxxxxx",
+  "stepName": "companyinformation",
+  "submittedItems": ["companyName", "companyEmail", "contactPerson"],
+  "reviews": [
+    {
+      "itemName": "companyName",
+      "value": "Acme Ltd",
+      "reviewerStatus": "reviewed",
+      "approverStatus": "pending"
+    }
+  ],
+  "allReviewed": false,
+  "allApproved": false
+}
+```
+
+### `POST /api/admin/merchants/:merchantId/steps/:stepName/items/:itemName/review`
+
+Marks one submitted item inside any onboarding step as checker-reviewed for optional audit detail.
+
+This does not mark the step as reviewed and does not move the merchant to `reviewed`. Use `POST /api/admin/merchants/:merchantId/steps/:stepName/review` to review the submitted step as a whole.
+
+#### Request payload
+
+```json
+{
+  "note": "Company name matches the registration document."
+}
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Step item reviewed successfully",
+  "stepName": "companyinformation",
+  "itemName": "companyName",
+  "review": {},
+  "allStepItemsReviewed": true,
+  "finishedChecking": false,
+  "overallStatus": "awaiting-review"
+}
 ```
 
 ### `POST /api/admin/merchants/:merchantId/review-decision`
@@ -331,7 +407,7 @@ Submits the final checker review decision and can attach a file.
 ```
 
 ```json
-{ "message": "All steps must be reviewed individually before final checker review" }
+{ "message": "All submitted steps must be reviewed before final checker review" }
 ```
 
 ### `POST /api/admin/merchants/:merchantId/notes`

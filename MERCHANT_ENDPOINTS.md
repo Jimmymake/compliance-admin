@@ -15,6 +15,47 @@ It excludes:
 
 These endpoints create and use the merchant JWT session.
 
+## Shared Merchant Object
+
+Whenever an endpoint returns `merchant`, it returns the full Merchant model shape except the internal Mongoose `__v` field.
+
+```json
+{
+  "_id": "66f1c2a0c2f6a01234567892",
+  "platformId": "66f1c2a0c2f6a01234567893",
+  "platformReferenceId": "platform-merchant-001",
+  "merchantId": "merchant_xxxxxxxx",
+  "userId": "66f1c2a0c2f6a01234567890",
+  "email": "merchant@example.com",
+  "name": "Acme Merchants Ltd",
+  "phone": "+254700000000",
+  "location": "",
+  "profilePic": "",
+  "businessCategory": "Limited Liability Company",
+  "registeredBusiness": "Yes",
+  "onboardingStatus": "in-progress",
+  "onboardingSteps": {
+    "companyinformation": { "completed": true, "completedAt": "2026-05-23T10:10:00.000Z" },
+    "ubo": { "completed": true, "completedAt": "2026-05-23T10:20:00.000Z" },
+    "paymentandprosessing": { "completed": false, "completedAt": null },
+    "settlmentbankdetails": { "completed": false, "completedAt": null },
+    "riskmanagement": { "completed": false, "completedAt": null },
+    "kycdocs": { "completed": false, "completedAt": null }
+  },
+  "approvedAt": null,
+  "approvedBy": null,
+  "rejectedAt": null,
+  "rejectedBy": null,
+  "rejectionReason": null,
+  "reviewedAt": null,
+  "reviewedBy": null,
+  "adminNotes": null,
+  "adminAttachment": null,
+  "createdAt": "2026-05-23T10:00:00.000Z",
+  "updatedAt": "2026-05-23T10:30:00.000Z"
+}
+```
+
 ### `POST /api/auth/signup`
 
 Creates a new merchant account.
@@ -34,9 +75,15 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
   "password": "StrongPassword123!",
   "phone": "+254700000000",
   "profilePic": "",
+  "businessCategory": "Limited Liability Company",
+  "registeredBusiness": "Yes",
   "role": "merchant"
 }
 ```
+
+`businessCategory` is a required string for merchant signup. Example values from the frontend are `Limited Liability Company`, `Public Listed Company`, `Sole Proprietorships`, or `Partnership`.
+
+`registeredBusiness` is a required string for merchant signup. Example values from the frontend are `Yes`, `No`, or `In the process of registering`.
 
 #### Successful response
 
@@ -50,13 +97,12 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "email": "merchant@example.com",
     "phone": "+254700000000",
     "profilePic": "",
+    "businessCategory": "Limited Liability Company",
+    "registeredBusiness": "Yes",
     "role": "merchant",
     "platformName": "Acme Payments"
   },
-  "merchant": {
-    "merchantId": "merchant_xxxxxxxx",
-    "onboardingStatus": "in-progress"
-  },
+  "merchant": { "merchantId": "merchant_xxxxxxxx", "onboardingStatus": "in-progress", "...": "full merchant object" },
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
 }
@@ -74,6 +120,10 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 ```json
 { "message": "role must be merchant, checker, or approver" }
+```
+
+```json
+{ "message": "businessCategory and registeredBusiness are required for merchant signup" }
 ```
 
 ### `POST /api/auth/login`
@@ -107,14 +157,13 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "email": "merchant@example.com",
     "phone": "+254700000000",
     "profilePic": "",
+    "businessCategory": "Limited Liability Company",
+    "registeredBusiness": "Yes",
     "role": "merchant",
     "platformId": null,
     "platformName": "Acme Payments"
   },
-  "merchant": {
-    "merchantId": "merchant_xxxxxxxx",
-    "onboardingStatus": "in-progress"
-  },
+  "merchant": { "merchantId": "merchant_xxxxxxxx", "onboardingStatus": "in-progress", "...": "full merchant object" },
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
 }
@@ -155,10 +204,7 @@ Authorization: Bearer <sessionToken>
     "merchantId": "merchant_xxxxxxxx",
     "role": "merchant"
   },
-  "merchant": {
-    "merchantId": "merchant_xxxxxxxx",
-    "onboardingStatus": "in-progress"
-  }
+  "merchant": { "merchantId": "merchant_xxxxxxxx", "onboardingStatus": "in-progress", "...": "full merchant object" }
 }
 ```
 
@@ -195,12 +241,9 @@ Authorization: Bearer <sessionToken>
 ```json
 {
   "merchant": {
-    "name": "Acme Merchants Ltd",
-    "email": "merchant@example.com",
     "merchantId": "merchant_xxxxxxxx",
-    "profilePic": "",
     "onboardingStatus": "in-progress",
-    "createdAt": "2026-05-23T10:00:00.000Z"
+    "...": "full merchant object"
   },
   "progress": {
     "completed": 2,
@@ -208,12 +251,12 @@ Authorization: Bearer <sessionToken>
     "percentage": 33
   },
   "steps": {
-    "companyinformation": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:10:00.000Z" },
-    "ubo": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:20:00.000Z" },
-    "paymentandprosessing": { "completed": false, "hasData": false, "lastUpdated": null },
-    "settlmentbankdetails": { "completed": false, "hasData": false, "lastUpdated": null },
-    "riskmanagement": { "completed": false, "hasData": false, "lastUpdated": null },
-    "kycdocs": { "completed": false, "hasData": false, "lastUpdated": null }
+    "companyinformation": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:10:00.000Z", "data": { "companyName": "Acme Merchants Ltd" } },
+    "ubo": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:20:00.000Z", "data": { "ubo": [] } },
+    "paymentandprosessing": { "completed": false, "hasData": false, "lastUpdated": null, "data": null },
+    "settlmentbankdetails": { "completed": false, "hasData": false, "lastUpdated": null, "data": null },
+    "riskmanagement": { "completed": false, "hasData": false, "lastUpdated": null, "data": null },
+    "kycdocs": { "completed": false, "hasData": false, "lastUpdated": null, "data": null }
   },
   "nextAction": {
     "step": "paymentandprosessing",
@@ -279,14 +322,8 @@ Returns the merchant profile summary.
 {
   "merchant": {
     "merchantId": "merchant_xxxxxxxx",
-    "name": "Acme Merchants Ltd",
-    "email": "merchant@example.com",
-    "phone": "+254700000000",
-    "location": "",
-    "profilePic": "",
     "onboardingStatus": "in-progress",
-    "createdAt": "2026-05-23T10:00:00.000Z",
-    "updatedAt": "2026-05-23T10:30:00.000Z"
+    "...": "full merchant object"
   }
 }
 ```
@@ -344,14 +381,8 @@ Returns the merchant profile plus onboarding data.
   "success": true,
   "merchant": {
     "merchantId": "merchant_xxxxxxxx",
-    "name": "Acme Merchants Ltd",
-    "email": "merchant@example.com",
-    "phone": "+254700000000",
-    "location": "",
-    "profilePic": "",
     "onboardingStatus": "in-progress",
-    "createdAt": "2026-05-23T10:00:00.000Z",
-    "updatedAt": "2026-05-23T10:30:00.000Z"
+    "...": "full merchant object"
   },
   "progress": {
     "completed": 2,
@@ -395,9 +426,9 @@ Returns completion state for each onboarding section.
     "percentage": 33
   },
   "forms": {
-    "companyinformation": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:10:00.000Z", "stepId": 1 },
-    "ubo": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:20:00.000Z", "stepId": 2 },
-    "paymentandprosessing": { "completed": false, "hasData": false, "lastUpdated": null, "stepId": 3 }
+    "companyinformation": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:10:00.000Z", "stepId": 1, "data": { "companyName": "Acme Merchants Ltd" } },
+    "ubo": { "completed": true, "hasData": true, "lastUpdated": "2026-05-23T10:20:00.000Z", "stepId": 2, "data": { "ubo": [] } },
+    "paymentandprosessing": { "completed": false, "hasData": false, "lastUpdated": null, "stepId": 3, "data": null }
   },
   "nextIncompleteForm": "paymentandprosessing",
   "allFormsCompleted": false,
@@ -437,9 +468,9 @@ Returns the onboarding state for a merchant.
     "ubo": { "completed": true, "data": {} }
   },
   "merchant": {
-    "name": "Acme Merchants Ltd",
-    "email": "merchant@example.com",
-    "createdAt": "2026-05-23T10:00:00.000Z"
+    "merchantId": "merchant_xxxxxxxx",
+    "onboardingStatus": "in-progress",
+    "...": "full merchant object"
   }
 }
 ```
@@ -805,7 +836,8 @@ Uploads and updates the merchant profile picture.
   },
   "merchant": {
     "merchantId": "merchant_xxxxxxxx",
-    "profilePic": "/uploads/profile-pics/66f1c2a0c2f6a01234567890/profile-1716450000000-123456789.png"
+    "profilePic": "/uploads/profile-pics/66f1c2a0c2f6a01234567890/profile-1716450000000-123456789.png",
+    "...": "full merchant object"
   }
 }
 ```
@@ -896,6 +928,8 @@ Uses the same payload as create, but updates the current merchant record.
   "ubo": [
     {
       "fullname": "John Smith",
+      "idpassportnumber": "A1234567",
+      "dateofbirth": "1985-04-12",
       "nationality": "Kenyan",
       "residentialaddress": "Nairobi, Kenya",
       "percentageofownership": "50",
@@ -1088,18 +1122,18 @@ Uses the same payload as create, but updates the current merchant record.
 
 ```json
 {
-  "certincorporation": "certificate.pdf",
-  "cr2forpatnership": "",
-  "cr2forshareholders": "",
-  "kracert": "kra-certificate.pdf",
-  "bankstatement": "bank-statement.pdf",
-  "passportids": "passport-ids.pdf",
-  "shareholderpassportid": "",
+  "certincorporation": ["certificate.pdf"],
+  "cr2forpatnership": [],
+  "cr2forshareholders": [],
+  "kracert": ["kra-certificate.pdf"],
+  "bankstatement": ["bank-statement.pdf"],
+  "passportids": ["passport-ids.pdf"],
+  "shareholderpassportid": [],
   "websiteipadress": ["https://acme.com"],
-  "proofofDomain": "domain-proof.pdf",
-  "proofofadress": "address-proof.pdf",
-  "pepform": "pep-form.pdf",
-  "bof1": "bof1.pdf"
+  "proofofDomain": ["domain-proof.pdf"],
+  "proofofadress": ["address-proof.pdf"],
+  "pepform": ["pep-form.pdf"],
+  "bof1": ["bof1.pdf"]
 }
 ```
 
@@ -1151,9 +1185,12 @@ Sends a message in the merchant conversation.
 ```json
 {
   "messageType": "text",
-  "text": "I have uploaded the requested document. 👍"
+  "text": "I have uploaded the requested document. 👍",
+  "replyToMessageId": "66f1c2a0c2f6a01234567890"
 }
 ```
+
+`replyToMessageId` is optional. When present, the backend stores a `replyTo` snapshot on the new message so the frontend can show a reply preview above the message.
 
 Emoji are sent as normal Unicode inside `text`. Messages can also include uploaded `attachments` using multipart form data. Chat accepts any attachment MIME type, but each file must be `10MB` or smaller.
 

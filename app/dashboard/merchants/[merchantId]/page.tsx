@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { resolveUploadUrl } from '@/lib/upload-url';
 
 type Merchant = Record<string, unknown>;
 type FieldEntry = {
@@ -148,13 +149,20 @@ function formatValue(value: unknown): string {
 }
 
 const metadataKeys = new Set([
+  'id',
+  '_id',
+  '__v',
   'completed',
   'completedat',
+  'createdat',
+  'merchantid',
+  'platformid',
   'hasdata',
   'lastupdated',
   'stepid',
   'status',
   'data',
+  'updatedat',
 ]);
 
 const nonStepDataKeys = new Set([
@@ -325,6 +333,20 @@ function filterFieldsByRoot(fields: FieldEntry[], allowedRoots: Set<string>) {
   });
 }
 
+function filterDisplayFields(fields: FieldEntry[]) {
+  return fields.filter((field) => {
+    const normalizedFieldName = normalizeKey(field.fieldName);
+    const normalizedLabel = normalizeKey(field.label);
+    const rootField = normalizeKey(field.fieldName.split('.')[0]);
+
+    return (
+      !metadataKeys.has(normalizedFieldName) &&
+      !metadataKeys.has(normalizedLabel) &&
+      !metadataKeys.has(rootField)
+    );
+  });
+}
+
 function readMerchantName(merchant: Merchant) {
   const business = readNested(merchant, ['business', 'companyInformation', 'company']);
   const profile = readNested(merchant, ['profile']);
@@ -349,6 +371,24 @@ function readDate(record: Merchant, keys: string[]) {
     day: 'numeric',
     year: 'numeric',
   }).format(date);
+}
+
+function statusBadgeClass(status: string) {
+  const normalizedStatus = normalizeKey(status || 'pending');
+
+  if (['approved', 'approve', 'complete', 'completed'].includes(normalizedStatus)) {
+    return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+
+  if (['reviewed', 'review', 'checked'].includes(normalizedStatus)) {
+    return 'border border-sky-200 bg-sky-50 text-sky-700';
+  }
+
+  if (['rejected', 'reject', 'declined', 'failed'].includes(normalizedStatus)) {
+    return 'border border-red-200 bg-red-50 text-red-700';
+  }
+
+  return 'border border-amber-200 bg-amber-50 text-amber-700';
 }
 
 function readLatestNote(notes: unknown[]) {
@@ -395,6 +435,17 @@ function readOverallNote(merchant: Merchant, notes: unknown[]) {
   if (directNote) return directNote;
 
   return readLatestNote(notes.filter(isCaseLevelNote));
+}
+
+function findStepReview(merchant: Merchant, stepName: string) {
+  const stepReviews = extractArray(merchant, ['stepReviews', 'stepreviews', 'reviews']);
+
+  return stepReviews.find((review) => {
+    if (!review || typeof review !== 'object') return false;
+
+    const reviewStep = readString(review as Merchant, ['stepName', 'step', 'section'], '');
+    return normalizeKey(reviewStep) === normalizeKey(stepName);
+  }) as Merchant | undefined;
 }
 
 function getAttachments(note: FieldNote): Attachment[] {
@@ -480,6 +531,70 @@ function uniqueNotes(notes: FieldNote[]) {
   });
 }
 
+function PaperclipIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+    >
+      <path d="m21.4 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.7-9.7a4 4 0 0 1 5.7 5.7l-9.8 9.8a2 2 0 0 1-2.8-2.8l8.7-8.7" />
+    </svg>
+  );
+}
+
+function NoteIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M8 13h5" />
+      <path d="M8 17h3" />
+      <path d="m15 18 5-5 2 2-5 5-3 1z" />
+    </svg>
+  );
+}
+
+function isWebUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function FieldValue({ value }: { value: string }) {
+  if (!isWebUrl(value)) {
+    return <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>;
+  }
+
+  return (
+    <a
+      href={value}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 block break-words text-sm font-medium text-indigo-600 transition hover:text-indigo-500 hover:underline"
+    >
+      {value}
+    </a>
+  );
+}
+
 function DetailField({
   label,
   value,
@@ -523,8 +638,41 @@ function DetailField({
 
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
+        {onSubmitNote && (
+          <div className="flex shrink-0 items-center gap-2">
+            {showNote && (
+              <label
+                title="Add file"
+                aria-label="Add file"
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600"
+              >
+                <PaperclipIcon />
+                <input
+                  type="file"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  className="sr-only"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              title={showNote ? 'Close note' : 'Add note'}
+              aria-label={showNote ? 'Close note' : 'Add note'}
+              onClick={() => {
+                setShowNote((current) => !current);
+                setError('');
+                setFeedback('');
+              }}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-600 transition hover:border-indigo-300 hover:text-indigo-500"
+            >
+              <NoteIcon />
+            </button>
+          </div>
+        )}
+      </div>
+      <FieldValue value={value} />
       {notes && notes.length > 0 && (
         <div className="mt-3 space-y-2 rounded-lg border border-indigo-100 bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
@@ -547,7 +695,7 @@ function DetailField({
                     {attachments.map((attachment) => (
                       <a
                         key={attachment.url}
-                        href={attachment.url}
+                        href={resolveUploadUrl(attachment.url)}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
@@ -564,19 +712,7 @@ function DetailField({
         </div>
       )}
       {onSubmitNote && (
-        <div className="mt-3 border-t border-slate-200 pt-3">
-          <button
-            type="button"
-            onClick={() => {
-              setShowNote((current) => !current);
-              setError('');
-              setFeedback('');
-            }}
-            className="text-xs font-semibold text-indigo-600 transition hover:text-indigo-500"
-          >
-            {showNote ? 'Close note' : 'Add note'}
-          </button>
-
+        <div className="mt-3">
           {showNote && (
             <div className="mt-3 space-y-3">
               <textarea
@@ -586,19 +722,23 @@ function DetailField({
                 placeholder={`Add note for ${label}...`}
                 className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-500 focus:border-indigo-400"
               />
-              <input
-                type="file"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-500 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-indigo-400"
-              />
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={submitNote}
-                className="rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:bg-indigo-200"
-              >
-                {submitting ? 'Saving...' : 'Save Note'}
-              </button>
+              <div className="flex items-center justify-between gap-3">
+                {file && (
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-600">
+                    {file.name}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={submitNote}
+                  title="Save note"
+                  aria-label="Save note"
+                  className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white transition hover:bg-indigo-500 disabled:bg-indigo-200"
+                >
+                  <NoteIcon />
+                </button>
+              </div>
             </div>
           )}
 
@@ -634,17 +774,18 @@ function FieldSection({
           />
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-4 columns-1 gap-4 md:columns-2">
           {fields.map((field) => (
-            <DetailField
-              key={field.fieldName}
-              label={field.label}
-              value={field.value}
-              notes={getFieldNotes?.(field.fieldName, field.label)}
-              onSubmitNote={(fieldName, message, file) =>
-                onSubmitNote?.(field.fieldName || fieldName, message, file) ?? Promise.resolve()
-              }
-            />
+            <div key={field.fieldName} className="mb-4 break-inside-avoid">
+              <DetailField
+                label={field.label}
+                value={field.value}
+                notes={getFieldNotes?.(field.fieldName, field.label)}
+                onSubmitNote={(fieldName, message, file) =>
+                  onSubmitNote?.(field.fieldName || fieldName, message, file) ?? Promise.resolve()
+                }
+              />
+            </div>
           ))}
         </div>
       )}
@@ -672,13 +813,13 @@ export default function MerchantDetailPage() {
     error: '',
   });
 
-  const documents = getSectionArray(merchant, ['kycdocs', 'kyc', 'documents', 'kycDocuments', 'kycdocuments', 'files']);
   const merchantNotes = extractArray(merchant, ['notes', 'adminNotes']);
   const notes = [...merchantNotes, ...fieldNotes];
   const overallNote = readOverallNote(merchant, notes);
 
   const canCheck = user?.role === 'checker';
   const canApprove = user?.role === 'approver';
+  const currentReviewStep = reviewSteps.includes(activeTab) ? activeTab : stepName;
   const decisionDateLabel = canApprove ? 'Date Approved' : 'Date Reviewed';
   const decisionDate = canApprove
     ? readDate(merchant, ['approvedAt', 'finalApprovedAt', 'approvalDate'])
@@ -797,7 +938,7 @@ export default function MerchantDetailPage() {
                 <FieldSection
                   key={index}
                   title={`UBO ${index + 1}`}
-                  fields={collectFields(uboItem as Merchant)}
+                  fields={filterDisplayFields(collectFields(uboItem as Merchant))}
                   getFieldNotes={getFieldNotes}
                   onSubmitNote={submitFieldNote}
                 />
@@ -810,8 +951,10 @@ export default function MerchantDetailPage() {
       return (
         <FieldSection
           title="UBO Details"
-          fields={collectFields(
-            getSectionRecord(merchant, ['uboDetails', 'ubodetails', 'ubo', 'ultimateBeneficialOwner'])
+          fields={filterDisplayFields(
+            collectFields(
+              getSectionRecord(merchant, ['uboDetails', 'ubodetails', 'ubo', 'ultimateBeneficialOwner'])
+            )
           )}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
@@ -823,8 +966,10 @@ export default function MerchantDetailPage() {
       return (
         <FieldSection
           title="Payment & Processing"
-          fields={collectFields(
-            getSectionRecord(merchant, ['paymentandprosessing', 'paymentProcessing', 'paymentinfo', 'payment'])
+          fields={filterDisplayFields(
+            collectFields(
+              getSectionRecord(merchant, ['paymentandprosessing', 'paymentProcessing', 'paymentinfo', 'payment'])
+            )
           )}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
@@ -850,7 +995,7 @@ export default function MerchantDetailPage() {
                 fields={
                   typeof settlementItem === 'string'
                     ? [{ label: 'Settlement Account', value: settlementItem, fieldName: 'settlementAccount' }]
-                    : collectFields(settlementItem as Merchant)
+                    : filterDisplayFields(collectFields(settlementItem as Merchant))
                 }
                 getFieldNotes={getFieldNotes}
                 onSubmitNote={submitFieldNote}
@@ -863,13 +1008,15 @@ export default function MerchantDetailPage() {
       return (
         <FieldSection
           title="Settlement Bank Details"
-          fields={collectFields(
-            getSectionRecord(merchant, [
-              'settlementbankdetail',
-              'settlementbankdetails',
-              'settlmentbankdetails',
-              'settlement',
-            ])
+          fields={filterDisplayFields(
+            collectFields(
+              getSectionRecord(merchant, [
+                'settlementbankdetail',
+                'settlementbankdetails',
+                'settlmentbankdetails',
+                'settlement',
+              ])
+            )
           )}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
@@ -881,8 +1028,10 @@ export default function MerchantDetailPage() {
       return (
         <FieldSection
           title="Risk Management"
-          fields={collectFields(
-            getSectionRecord(merchant, ['riskmanagement', 'riskManagement', 'riskmanagementinfo', 'risk'])
+          fields={filterDisplayFields(
+            collectFields(
+              getSectionRecord(merchant, ['riskmanagement', 'riskManagement', 'riskmanagementinfo', 'risk'])
+            )
           )}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
@@ -892,40 +1041,25 @@ export default function MerchantDetailPage() {
 
     if (activeTab === 'kycdocs') {
       const kycRecord = getSectionRecord(merchant, ['kycdocs', 'kycDocs', 'kycinfo', 'kyc']);
+      const kycFields = filterDisplayFields(collectFields(kycRecord));
 
       return (
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-900">KYC Documents</h2>
           <div className="mt-4 space-y-3">
-            {documents.length === 0 ? (
-              <FieldSection
-                title="KYC Documents"
-                fields={collectFields(kycRecord)}
-                getFieldNotes={getFieldNotes}
-                onSubmitNote={submitFieldNote}
-              />
-            ) : (
-              documents.map((document, index) => (
-                <FieldSection
-                  key={index}
-                  title={`Document ${index + 1}`}
-                  fields={
-                    typeof document === 'string'
-                      ? [{ label: 'Document', value: document, fieldName: 'document' }]
-                      : collectFields(document as Merchant)
-                  }
-                  getFieldNotes={getFieldNotes}
-                  onSubmitNote={submitFieldNote}
-                />
-              ))
-            )}
+            <FieldSection
+              title="KYC Documents"
+              fields={kycFields}
+              getFieldNotes={getFieldNotes}
+              onSubmitNote={submitFieldNote}
+            />
           </div>
         </section>
       );
     }
 
     return null;
-  }, [activeTab, documents, getFieldNotes, merchant, submitFieldNote]);
+  }, [activeTab, getFieldNotes, merchant, submitFieldNote]);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -933,11 +1067,11 @@ export default function MerchantDetailPage() {
     }
   }, [isAuthenticated, loading, router]);
 
-  useEffect(() => {
-    if (loading || !isAuthenticated || !merchantId) return;
-
-    const loadMerchant = async () => {
-      setFetching(true);
+  const loadMerchant = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) {
+        setFetching(true);
+      }
       setFetchError('');
 
       try {
@@ -966,12 +1100,19 @@ export default function MerchantDetailPage() {
       } catch (err) {
         setFetchError(err instanceof Error ? err.message : 'Failed to load merchant');
       } finally {
-        setFetching(false);
+        if (showLoading) {
+          setFetching(false);
+        }
       }
-    };
+    },
+    [loadFieldNotes, merchantId]
+  );
+
+  useEffect(() => {
+    if (loading || !isAuthenticated || !merchantId) return;
 
     loadMerchant();
-  }, [isAuthenticated, loadFieldNotes, loading, merchantId]);
+  }, [isAuthenticated, loadMerchant, loading, merchantId]);
 
   const sendAction = async (path: string, body: Record<string, unknown>) => {
     setAction({ loading: true, message: '', error: '' });
@@ -997,6 +1138,7 @@ export default function MerchantDetailPage() {
         message: data.message || 'Action completed successfully',
         error: '',
       });
+      await loadMerchant(false);
     } catch (err) {
       setAction({
         loading: false,
@@ -1006,14 +1148,57 @@ export default function MerchantDetailPage() {
     }
   };
 
-  const currentReviewStep = reviewSteps.includes(activeTab) ? activeTab : stepName;
-
+  const currentStepReview = findStepReview(merchant, currentReviewStep);
+  const checkerStatus = readString(currentStepReview, ['reviewerStatus'], '');
+  const checkerNote = readString(currentStepReview, ['reviewerNote', 'reviewNote', 'note'], '');
+  const checkerName = readString(currentStepReview, ['reviewedByName', 'reviewerName', 'reviewedBy'], '');
+  const checkerDate = readDate(currentStepReview ?? {}, ['reviewedAt', 'reviewDate', 'updatedAt']);
+  const approverStatus = readString(currentStepReview, ['approverStatus'], '');
+  const approverNote = readString(currentStepReview, ['approverNote', 'approvalNote'], '');
+  const approverName = readString(currentStepReview, ['approvedByName', 'approverName', 'approvedBy'], '');
+  const approverDate = readDate(currentStepReview ?? {}, ['approvedAt', 'approvalDate']);
   const stepReviewPanel = (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-900">Step Review</h2>
       <p className="mt-2 text-sm text-slate-500">
         Actions here apply only to the selected onboarding step.
       </p>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Checker Review</h3>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(checkerStatus)}`}>
+              {checkerStatus || 'Pending'}
+            </span>
+          </div>
+          <p className="mt-3 break-words text-sm leading-6 text-slate-600">
+            {checkerNote || 'No checker note has been added for this step yet.'}
+          </p>
+          {(checkerName || checkerDate !== '—') && (
+            <p className="mt-3 text-xs text-slate-500">
+              {[checkerName, checkerDate !== '—' ? checkerDate : ''].filter(Boolean).join(' - ')}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Approver Review</h3>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(approverStatus)}`}>
+              {approverStatus || 'Pending'}
+            </span>
+          </div>
+          <p className="mt-3 break-words text-sm leading-6 text-slate-600">
+            {approverNote || 'No approver note has been added for this step yet.'}
+          </p>
+          {(approverName || approverDate !== '—') && (
+            <p className="mt-3 text-xs text-slate-500">
+              {[approverName, approverDate !== '—' ? approverDate : ''].filter(Boolean).join(' - ')}
+            </p>
+          )}
+        </div>
+      </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <label className="block">
@@ -1059,7 +1244,7 @@ export default function MerchantDetailPage() {
                 { note }
               )
             }
-            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:bg-slate-200 disabled:text-slate-500"
+            className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:bg-slate-200 disabled:text-slate-500"
           >
             Review Step
           </button>
@@ -1077,7 +1262,7 @@ export default function MerchantDetailPage() {
                 { note }
               )
             }
-            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:bg-slate-200 disabled:text-slate-500"
+            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:bg-slate-200 disabled:text-slate-500"
           >
             Approve Step
           </button>

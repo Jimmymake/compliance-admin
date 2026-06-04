@@ -14,6 +14,15 @@ It excludes:
 - Platform backend session-generation endpoints
 - Internal server-to-server endpoints
 
+Final merchant statuses are locked. Once the overall status is `approved` or `rejected`, approver actions that would alter review state or overall status return `409`:
+
+```json
+{
+  "message": "Merchant application is already rejected. Final merchant status cannot be altered.",
+  "status": "rejected"
+}
+```
+
 ## Authentication
 
 Approver access uses the same JWT/session flow as other users.
@@ -183,6 +192,12 @@ These endpoints are accessible to checker, approver, or admin roles, but they ar
 
 appears when the role is missing or unauthorized for shared endpoints.
 
+### Shared merchant data responses
+
+`GET /api/admin/merchants`, `GET /api/admin/merchants/:merchantId`, and `GET /api/admin/reviews/pending` return full Merchant records, excluding only the internal Mongoose `__v` field. The `merchant` object includes fields such as `_id`, `platformId`, `platformReferenceId`, `merchantId`, `userId`, contact/profile fields, `businessCategory`, `registeredBusiness`, `onboardingStatus`, `onboardingSteps`, approval/rejection audit fields, `adminNotes`, `adminAttachment`, `createdAt`, and `updatedAt`.
+
+`GET /api/admin/merchants/:merchantId` also returns full onboarding step documents under `steps.companyinformation`, `steps.ubo`, `steps.paymentandprosessing`, `steps.settlmentbankdetails`, `steps.riskmanagement`, and `steps.kycdocs`.
+
 ## Merchant Chat Endpoints
 
 Approver chat is scoped to the selected merchant case. The backend stores the conversation by `merchantId + platformId`, so previous messages return when the approver opens the merchant again.
@@ -199,9 +214,12 @@ Sends a message in the merchant conversation.
 {
   "merchantId": "merchant_xxxxxxxx",
   "messageType": "text",
-  "text": "I have reviewed the submitted documents. 👍"
+  "text": "I have reviewed the submitted documents. 👍",
+  "replyToMessageId": "66f1c2a0c2f6a01234567890"
 }
 ```
+
+`replyToMessageId` is optional. When present, the backend stores a `replyTo` snapshot on the new message so the frontend can show a reply preview above the message.
 
 Emoji are sent as normal Unicode inside `text`. Messages can also include uploaded `attachments` using multipart form data. Chat accepts any attachment MIME type, but each file must be `10MB` or smaller.
 
@@ -333,7 +351,9 @@ GET /api/admin/merchants/merchant_xxxxxxxx/notes?stepName=kycdocs&fieldName=pass
 
 ### `POST /api/admin/merchants/:merchantId/steps/:stepName/approve`
 
-Approves a single step after checker review.
+Approves one submitted step after checker review.
+
+The approver approves the step as a whole. Field/item-level approval is not required before marking the step approved.
 
 #### Request payload
 
@@ -366,6 +386,95 @@ Approves a single step after checker review.
 
 ```json
 { "message": "Merchant must be reviewed before approver step approval" }
+```
+
+```json
+{ "message": "Step must be reviewed before approval" }
+```
+
+### `GET /api/admin/merchants/:merchantId/steps/:stepName/items/reviews`
+
+Returns the submitted items for any onboarding step and their individual checker/approver statuses.
+
+This endpoint is optional detail for UI display or audit history. It is not required for approver workflow progression.
+
+Valid `stepName` values: `companyinformation`, `ubo`, `paymentandprosessing`, `settlmentbankdetails`, `riskmanagement`, `kycdocs`.
+
+#### Successful response
+
+```json
+{
+  "merchantId": "merchant_xxxxxxxx",
+  "stepName": "companyinformation",
+  "submittedItems": ["companyName", "companyEmail", "contactPerson"],
+  "reviews": [
+    {
+      "itemName": "companyName",
+      "value": "Acme Ltd",
+      "reviewerStatus": "reviewed",
+      "approverStatus": "approved"
+    }
+  ],
+  "allReviewed": true,
+  "allApproved": false
+}
+```
+
+### `POST /api/admin/merchants/:merchantId/steps/:stepName/items/:itemName/approve`
+
+Approves one checker-reviewed submitted item inside any onboarding step for optional audit detail.
+
+This does not mark the step as approved. Use `POST /api/admin/merchants/:merchantId/steps/:stepName/approve` to approve the submitted step as a whole.
+
+#### Request payload
+
+```json
+{
+  "note": "Company name approved."
+}
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Step item approved successfully",
+  "stepName": "companyinformation",
+  "itemName": "companyName",
+  "review": {},
+  "allStepItemsApproved": true,
+  "finishedApproving": false,
+  "overallStatus": "reviewed"
+}
+```
+
+### `POST /api/admin/merchants/:merchantId/steps/:stepName/items/:itemName/reject`
+
+Rejects one checker-reviewed submitted item inside any onboarding step for optional audit detail.
+
+This records the item-level rejection only. It does not mark the step rejected and does not change the merchant's overall status to `rejected`. Use `POST /api/admin/merchants/:merchantId/steps/:stepName/reject` to reject the submitted step as a whole.
+
+#### Request payload
+
+```json
+{
+  "reason": "Company name does not match the submitted document.",
+  "note": "Ask merchant to correct the company information."
+}
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Step item rejected successfully",
+  "stepName": "companyinformation",
+  "itemName": "companyName",
+  "review": {},
+  "allStepItemsApproved": false,
+  "finishedApproving": false,
+  "overallStatus": "reviewed"
+}
 ```
 
 ### `POST /api/admin/merchants/:merchantId/steps/:stepName/reject`
@@ -446,7 +555,7 @@ Final approval for a merchant application.
 ```
 
 ```json
-{ "message": "All steps must be reviewed and approved before final approval" }
+{ "message": "All submitted steps must be reviewed and approved before final approval" }
 ```
 
 ### `POST /api/admin/merchants/:merchantId/final-reject`
@@ -606,6 +715,10 @@ Updates multiple merchants at once.
 
 ```json
 { "message": "All merchants must be reviewed before approval or rejection" }
+```
+
+```json
+{ "message": "All submitted steps must be reviewed and approved before final approval" }
 ```
 
 ## Approver Notes

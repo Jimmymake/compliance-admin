@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Compliance Web - Admin Dashboard",
   description: "Admin dashboard for compliance management",
+  icons: {
+    icon: "/10.png",
+    shortcut: "/10.png",
+    apple: "/10.png",
+  },
 };
 
 export default function RootLayout({

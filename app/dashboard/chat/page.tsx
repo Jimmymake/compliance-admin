@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
+import { resolveUploadUrl } from '@/lib/upload-url';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
@@ -95,6 +96,17 @@ function getMessageId(message: Message) {
   return readString(message, ['id', '_id', 'messageId', 'message_id', 'messageID']);
 }
 
+function getMessageKey(message: Message, index: number) {
+  return getMessageId(message) || `${readMessageSender(message)}-${readMessageText(message)}-${index}`;
+}
+
+function getReplyTargetId(message: Message, replySnapshot: Message | undefined) {
+  return (
+    getMessageId(replySnapshot ?? {}) ||
+    readString(message, ['replyToMessageId', 'replyToId', 'parentMessageId', 'quotedMessageId'])
+  );
+}
+
 function isSameMessage(a: Message, b: Message) {
   const idA = getMessageId(a);
   const idB = getMessageId(b);
@@ -177,7 +189,7 @@ async function readResponseBody(response: Response) {
 }
 
 function readMessageText(message: Message) {
-  return readString(message, ['text', 'message', 'body', 'content'], '—');
+  return readString(message, ['text', 'message', 'body', 'content']);
 }
 
 function readMessageSender(message: Message) {
@@ -198,9 +210,45 @@ function readMessageSenderName(message: Message) {
 }
 
 function readMessageAttachments(message: Message) {
-  const attachments = message.attachments ?? message.files ?? message.attachments?.data;
+  const attachmentPayload = message.attachments;
+  const attachments =
+    attachmentPayload ??
+    message.files ??
+    (attachmentPayload && typeof attachmentPayload === 'object' && 'data' in attachmentPayload
+      ? (attachmentPayload as RecordValue).data
+      : undefined);
   if (Array.isArray(attachments)) return attachments as RecordValue[];
   return [];
+}
+
+function readReplyToMessage(message: Message) {
+  const candidate =
+    message.replyTo ??
+    message.replyToMessage ??
+    message.repliedTo ??
+    message.parentMessage ??
+    message.quotedMessage;
+
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    return candidate as Message;
+  }
+
+  return undefined;
+}
+
+function readReplyPreviewText(message: Message | undefined) {
+  if (!message) return '';
+
+  const text = readMessageText(message);
+  if (text && text !== '—') return text;
+
+  return readMessageAttachments(message).length > 0 ? 'Attachment' : 'Message';
+}
+
+function readReplyPreviewSender(message: Message | undefined, fallback = 'Message') {
+  if (!message) return fallback;
+
+  return readMessageSenderName(message) || readMessageSender(message) || fallback;
 }
 
 function getFileMessageType(file: File) {
@@ -246,7 +294,12 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
+  const [selectedMessageKey, setSelectedMessageKey] = useState('');
+  const [openMessageMenuKey, setOpenMessageMenuKey] = useState('');
+  const [highlightedMessageKey, setHighlightedMessageKey] = useState('');
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageRefsRef = useRef(new Map<string, HTMLDivElement>());
   const socketRef = useRef<Socket | null>(null);
 
   const openFilePicker = () => {
@@ -310,7 +363,6 @@ export default function ChatPage() {
 
     const socket = io(apiUrl, {
       auth: { token: sessionToken },
-      transports: ['websocket'],
     });
 
     socketRef.current = socket;
@@ -421,6 +473,10 @@ export default function ChatPage() {
     const loadConversation = async () => {
       setLoadingConversation(true);
       setError('');
+      setSelectedMessageKey('');
+      setOpenMessageMenuKey('');
+      setHighlightedMessageKey('');
+      setReplyToMessage(null);
 
       try {
         const sessionToken = localStorage.getItem('session_token');
@@ -499,7 +555,28 @@ export default function ChatPage() {
 
   const selectMerchant = (merchantId: string) => {
     setSelectedMerchantId(merchantId);
+    setSelectedMessageKey('');
+    setOpenMessageMenuKey('');
+    setHighlightedMessageKey('');
+    setReplyToMessage(null);
     router.replace(`/dashboard/chat?merchantId=${encodeURIComponent(merchantId)}`);
+  };
+
+  const scrollToMessage = (targetMessageId: string) => {
+    if (!targetMessageId) return;
+
+    const targetIndex = messages.findIndex((message) => getMessageId(message) === targetMessageId);
+    if (targetIndex === -1) return;
+
+    const targetMessage = messages[targetIndex];
+    const targetKey = getMessageKey(targetMessage, targetIndex);
+    const targetElement = messageRefsRef.current.get(targetKey);
+
+    targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMessageKey(targetKey);
+    window.setTimeout(() => {
+      setHighlightedMessageKey((current) => (current === targetKey ? '' : current));
+    }, 1600);
   };
 
   const sendMessage = async (event: FormEvent<HTMLFormElement>) => {
@@ -531,6 +608,7 @@ export default function ChatPage() {
         const formData = new FormData();
         formData.append('merchantId', selectedMerchantId);
         if (conversationId) formData.append('conversationId', conversationId);
+        if (replyToMessage) formData.append('replyToMessageId', getMessageId(replyToMessage));
         formData.append('messageType', getFileMessageType(attachments[0]));
         if (draft.trim()) {
           formData.append('message', draft.trim());
@@ -559,6 +637,7 @@ export default function ChatPage() {
             conversationId: conversationId || undefined,
             messageType: 'text',
             text: draft.trim(),
+            replyToMessageId: replyToMessage ? getMessageId(replyToMessage) : undefined,
           }),
         });
       }
@@ -581,6 +660,9 @@ export default function ChatPage() {
       setMessages((current) => appendUniqueMessages(current, nextMessages));
       setDraft('');
       setAttachments([]);
+      setReplyToMessage(null);
+      setSelectedMessageKey('');
+      setOpenMessageMenuKey('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
@@ -698,10 +780,24 @@ export default function ChatPage() {
                     (outgoing ? user?.name || 'You' : readMerchantName(selectedMerchant)) ||
                     (outgoing ? 'You' : 'Merchant');
                   const initials = initialsFor(senderName);
+                  const messageKey = getMessageKey(message, index);
+                  const messageId = getMessageId(message);
+                  const isMenuOpen = openMessageMenuKey === messageKey;
+                  const isSelected = selectedMessageKey === messageKey || isMenuOpen;
+                  const isHighlighted = highlightedMessageKey === messageKey;
+                  const replySnapshot = readReplyToMessage(message);
+                  const replyTargetId = getReplyTargetId(message, replySnapshot);
 
                   return (
                     <div
-                      key={`${readString(message, ['id', '_id'], String(index))}-${index}`}
+                      key={messageKey}
+                      ref={(element) => {
+                        if (element) {
+                          messageRefsRef.current.set(messageKey, element);
+                        } else {
+                          messageRefsRef.current.delete(messageKey);
+                        }
+                      }}
                       className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}
                     >
                       <div className={`flex max-w-[68%] items-start gap-3 ${outgoing ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -711,31 +807,134 @@ export default function ChatPage() {
                           </span>
                         )}
                         <div
-                          className={`rounded-2xl px-3 py-3 text-sm shadow ${
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            setSelectedMessageKey((current) => (current === messageKey ? '' : messageKey));
+                            setOpenMessageMenuKey('');
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedMessageKey((current) => (current === messageKey ? '' : messageKey));
+                              setOpenMessageMenuKey('');
+                            }
+                          }}
+                          className={`group/message relative rounded-2xl px-3 py-3 pr-9 text-sm shadow outline-none ring-offset-2 transition ${
                             outgoing ? 'bg-indigo-500 text-white' : 'bg-slate-200 text-slate-900'
-                          }`}
+                          } ${isSelected || isHighlighted ? 'ring-2 ring-amber-400' : ''}`}
                         >
+                          {messageId && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedMessageKey(messageKey);
+                                  setOpenMessageMenuKey((current) => (current === messageKey ? '' : messageKey));
+                                }}
+                                className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-xs opacity-0 shadow-sm transition group-hover/message:opacity-100 group-focus-within/message:opacity-100 ${
+                                  isMenuOpen ? 'opacity-100' : ''
+                                } ${
+                                  outgoing
+                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                    : 'bg-slate-300 text-slate-700 hover:bg-slate-400'
+                                }`}
+                                aria-haspopup="menu"
+                                aria-expanded={isMenuOpen}
+                                aria-label="Message actions"
+                                title="Message actions"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="m6 9 6 6 6-6" />
+                                </svg>
+                              </button>
+                              {isMenuOpen && (
+                                <div
+                                  role="menu"
+                                  className="absolute right-2 top-9 z-20 w-20 rounded-md border border-slate-200 bg-white py-0.5 text-xs text-slate-800 shadow-lg"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setReplyToMessage(message);
+                                      setSelectedMessageKey('');
+                                      setOpenMessageMenuKey('');
+                                    }}
+                                    className="block w-full px-2.5 py-1.5 text-left text-xs font-medium transition hover:bg-slate-100"
+                                  >
+                                    Reply
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
                           {!outgoing && (
                             <p className="mb-2 text-xs font-semibold text-slate-600">
                               {senderName}
                             </p>
                           )}
-                          <p className="break-words leading-6">{readMessageText(message)}</p>
+                          {replySnapshot && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                scrollToMessage(replyTargetId);
+                              }}
+                              disabled={!replyTargetId}
+                              className={`mb-2 block w-full rounded-lg border-l-4 px-3 py-2 text-left transition disabled:cursor-default ${
+                                outgoing
+                                  ? 'border-indigo-200 bg-white/15 text-indigo-50'
+                                  : 'border-indigo-400 bg-white/70 text-slate-700'
+                              } ${replyTargetId ? 'hover:bg-white/30' : ''}`}
+                            >
+                              <p className="text-xs font-semibold">
+                                {readReplyPreviewSender(replySnapshot)}
+                              </p>
+                              <p className="mt-1 line-clamp-2 break-words text-xs opacity-90">
+                                {readReplyPreviewText(replySnapshot)}
+                              </p>
+                            </button>
+                          )}
+                          {readMessageText(message) && (
+                            <p className="break-words leading-6">{readMessageText(message)}</p>
+                          )}
                           {readMessageAttachments(message).length > 0 && (
                             <div className="mt-3 space-y-2 rounded-xl bg-white/10 p-3 text-slate-800 text-sm">
                               {readMessageAttachments(message).map((attachment, attachmentIndex) => {
-                                const url = readString(attachment, ['url', 'fileUrl', 'downloadUrl']);
+                                const url = resolveUploadUrl(readString(attachment, ['url', 'fileUrl', 'downloadUrl']));
                                 const name = readString(attachment, ['originalName', 'filename', 'name']) || 'Attachment';
                                 const mimeType = readString(attachment, ['mimeType', 'type']);
                                 const size = readString(attachment, ['size']);
+                                const isImage = mimeType.startsWith('image/');
                                 return (
                                   <a
                                     key={`${name}-${attachmentIndex}`}
                                     href={url}
                                     target="_blank"
                                     rel="noreferrer"
+                                    onClick={(event) => event.stopPropagation()}
                                     className="block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 transition hover:border-slate-300"
                                   >
+                                    {isImage && url && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={url}
+                                        alt={name}
+                                        className="mb-2 max-h-64 w-full rounded-lg object-contain"
+                                      />
+                                    )}
                                     <div className="flex items-center justify-between gap-3">
                                       <span>{name}</span>
                                       <span className="text-xs text-slate-500">{mimeType}</span>
@@ -760,13 +959,47 @@ export default function ChatPage() {
 
             <form onSubmit={sendMessage} className="flex shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 py-3">
               <div className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-[#f7f7fb] px-3 py-3">
+                {replyToMessage && (
+                  <div className="mb-3 flex items-start justify-between gap-3 rounded-xl border-l-4 border-indigo-500 bg-white px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-indigo-600">
+                        Replying to {readReplyPreviewSender(replyToMessage)}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-slate-600">
+                        {readReplyPreviewText(replyToMessage)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReplyToMessage(null)}
+                      className="shrink-0 rounded-lg px-2 py-1 text-sm text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Cancel reply"
+                      title="Cancel reply"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={openFilePicker}
-                    className="rounded-lg px-3 py-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    aria-label="Attach files"
+                    title="Attach files"
                   >
-                    +
+                    <svg
+                      aria-hidden="true"
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.25"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="m21.4 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.7-9.7a4 4 0 0 1 5.7 5.7l-9.8 9.8a2 2 0 0 1-2.8-2.8l8.7-8.7" />
+                    </svg>
                   </button>
                   <input
                     ref={fileInputRef}
