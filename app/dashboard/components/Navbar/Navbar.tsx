@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import BrandLogo from '@/app/components/BrandLogo';
 import { useRouter } from 'next/navigation';
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { resolveUploadUrl } from '@/lib/upload-url';
 
 type Merchant = Record<string, unknown>;
 type NotificationRecord = Record<string, unknown>;
@@ -196,12 +197,15 @@ export default function Navbar() {
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notificationError, setNotificationError] = useState('');
+  const [failedProfilePicUrl, setFailedProfilePicUrl] = useState('');
   const initials = user?.name
     ?.split(' ')
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
     .toUpperCase() ?? 'AS';
+  const profilePicUrl = resolveUploadUrl(user?.profilePic ?? '');
+  const showProfilePic = Boolean(profilePicUrl && failedProfilePicUrl !== profilePicUrl);
   const notificationHistoryKey = `notification_history_${user?.email ?? 'staff'}`;
 
   useEffect(() => {
@@ -537,9 +541,19 @@ export default function Navbar() {
         <Link
           href="/dashboard/profile"
           aria-label="Open profile"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-200"
+          className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-200"
         >
-          {initials}
+          {showProfilePic ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profilePicUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setFailedProfilePicUrl(profilePicUrl)}
+            />
+          ) : (
+            initials
+          )}
         </Link>
       </div>
     </nav>

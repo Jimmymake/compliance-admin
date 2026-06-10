@@ -1,5 +1,7 @@
 'use client';
 
+import data from '@emoji-mart/data';
+import Picker from '@emoji-mart/react';
 import { useAuth } from '@/lib/auth-context';
 import { resolveUploadUrl } from '@/lib/upload-url';
 import Image from 'next/image';
@@ -10,6 +12,9 @@ import { io, Socket } from 'socket.io-client';
 type RecordValue = Record<string, unknown>;
 type Merchant = RecordValue;
 type Message = RecordValue;
+type EmojiSelection = {
+  native?: string;
+};
 
 function readString(record: RecordValue | undefined, keys: string[], fallback = '') {
   if (!record) return fallback;
@@ -306,7 +311,9 @@ function ChatPageContent() {
   const [openMessageMenuKey, setOpenMessageMenuKey] = useState('');
   const [highlightedMessageKey, setHighlightedMessageKey] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageInputRef = useRef<HTMLInputElement | null>(null);
   const messageRefsRef = useRef(new Map<string, HTMLDivElement>());
   const socketRef = useRef<Socket | null>(null);
 
@@ -332,6 +339,27 @@ function ChatPageContent() {
     console.log('Selected files', fileArray.map((file) => ({ name: file.name, size: file.size, type: file.type })));
     setAttachments((current) => [...current, ...fileArray]);
     event.target.value = '';
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const input = messageInputRef.current;
+    const start = input?.selectionStart ?? draft.length;
+    const end = input?.selectionEnd ?? draft.length;
+    const nextDraft = `${draft.slice(0, start)}${emoji}${draft.slice(end)}`;
+
+    setDraft(nextDraft);
+    setEmojiOpen(false);
+
+    window.requestAnimationFrame(() => {
+      input?.focus();
+      const nextCursor = start + emoji.length;
+      input?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  const handleSelectEmoji = (emojiObject: EmojiSelection) => {
+    if (!emojiObject.native) return;
+    insertEmoji(emojiObject.native);
   };
 
   useEffect(() => {
@@ -671,6 +699,7 @@ function ChatPageContent() {
       setReplyToMessage(null);
       setSelectedMessageKey('');
       setOpenMessageMenuKey('');
+      setEmojiOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
@@ -784,6 +813,9 @@ function ChatPageContent() {
                     (outgoing ? user?.name || 'You' : readMerchantName(selectedMerchant)) ||
                     (outgoing ? 'You' : 'Merchant');
                   const initials = initialsFor(senderName);
+                  const senderProfilePic = outgoing
+                    ? resolveUploadUrl(user?.profilePic ?? '')
+                    : resolveUploadUrl(readString(message, ['senderProfilePic', 'profilePic', 'senderAvatar']));
                   const messageKey = getMessageKey(message, index);
                   const messageId = getMessageId(message);
                   const isMenuOpen = openMessageMenuKey === messageKey;
@@ -805,11 +837,20 @@ function ChatPageContent() {
                       className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}
                     >
                       <div className={`flex max-w-[68%] items-start gap-3 ${outgoing ? 'flex-row-reverse' : 'flex-row'}`}>
-                        {!outgoing && (
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-300 text-[11px] font-semibold text-slate-700">
-                            {initials}
-                          </span>
-                        )}
+                        <span className="relative grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-300 text-[11px] font-semibold text-slate-700">
+                          <span>{initials}</span>
+                          {senderProfilePic && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={senderProfilePic}
+                              alt=""
+                              className="absolute inset-0 h-full w-full object-cover"
+                              onError={(event) => {
+                                event.currentTarget.remove();
+                              }}
+                            />
+                          )}
+                        </span>
                         <div
                           role="button"
                           tabIndex={0}
@@ -962,7 +1003,7 @@ function ChatPageContent() {
             </div>
 
             <form onSubmit={sendMessage} className="flex shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 py-3">
-              <div className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-[#f7f7fb] px-3 py-3">
+              <div className="relative min-w-0 flex-1 rounded-2xl border border-slate-200 bg-[#f7f7fb] px-3 py-3">
                 {replyToMessage && (
                   <div className="mb-3 flex items-start justify-between gap-3 rounded-xl border-l-4 border-indigo-500 bg-white px-3 py-2">
                     <div className="min-w-0">
@@ -1013,7 +1054,30 @@ function ChatPageContent() {
                     className="sr-only"
                     onChange={onAttachmentsChange}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setEmojiOpen((current) => !current)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    aria-label="Open emoji picker"
+                    title="Emoji"
+                  >
+                    <span aria-hidden="true" className="text-lg leading-none">😊</span>
+                  </button>
+                  {emojiOpen && (
+                    <div className="absolute bottom-16 left-3 z-30 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+                      <Picker
+                        data={data}
+                        onEmojiSelect={handleSelectEmoji}
+                        theme="light"
+                        navPosition="bottom"
+                        previewPosition="none"
+                        skinTonePosition="search"
+                        perLine={9}
+                      />
+                    </div>
+                  )}
                   <input
+                    ref={messageInputRef}
                     type="text"
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}

@@ -85,17 +85,20 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 `registeredBusiness` is a required string for merchant signup. Example values from the frontend are `Yes`, `No`, or `In the process of registering`.
 
+`phone` is required for merchant signup and must be in international format, for example `+254700000000`.
+
 #### Successful response
 
 ```json
 {
-  "message": "Merchant account created successfully",
+  "message": "Merchant account created successfully. Phone verification is required before onboarding can continue.",
   "user": {
     "userId": "66f1c2a0c2f6a01234567890",
     "merchantId": "merchant_xxxxxxxx",
     "name": "Acme Merchants Ltd",
     "email": "merchant@example.com",
     "phone": "+254700000000",
+    "phoneVerified": false,
     "profilePic": "",
     "businessCategory": "Limited Liability Company",
     "registeredBusiness": "Yes",
@@ -103,6 +106,12 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "platformName": "Acme Payments"
   },
   "merchant": { "merchantId": "merchant_xxxxxxxx", "onboardingStatus": "in-progress", "...": "full merchant object" },
+  "verificationRequired": true,
+  "phoneVerification": {
+    "sent": true,
+    "expiresAt": "2026-06-09T10:10:00.000Z",
+    "message": "Verification code sent by SMS"
+  },
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
 }
@@ -124,6 +133,137 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 ```json
 { "message": "businessCategory and registeredBusiness are required for merchant signup" }
+```
+
+```json
+{ "message": "phone must be in international format, for example +254700000000" }
+```
+
+```json
+{ "message": "Too many signup SMS attempts. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/verify-phone`
+
+Verifies the authenticated merchant's phone number using the 6-digit SMS code sent during signup or resend.
+
+The account can log in before verification, but protected API routes return `403` until this endpoint succeeds. This rule applies to all user roles.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Request payload
+
+```json
+{
+  "code": "123456"
+}
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Phone number verified successfully",
+  "verificationRequired": false,
+  "phoneVerified": true
+}
+```
+
+For merchants, this also creates the welcome notification and sends it through the enabled notification channels, including SMS when `SMS_NOTIFICATIONS_ENABLED=true`.
+
+#### Common errors
+
+```json
+{ "message": "A valid 6-digit verification code is required", "verificationRequired": true, "phoneVerified": false }
+```
+
+```json
+{ "message": "Invalid verification code", "verificationRequired": true, "phoneVerified": false }
+```
+
+```json
+{ "message": "Verification code has expired. Please request a new code.", "verificationRequired": true, "phoneVerified": false }
+```
+
+```json
+{ "message": "Too many phone verification attempts. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/resend-phone-code`
+
+Sends a new SMS verification code to the authenticated merchant's saved phone number.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Verification code sent by SMS",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "expiresAt": "2026-06-09T10:10:00.000Z"
+}
+```
+
+#### Common errors
+
+```json
+{ "message": "Please wait 60 seconds before requesting another code", "verificationRequired": true, "phoneVerified": false }
+```
+
+```json
+{ "message": "Too many phone verification code requests. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/change-phone`
+
+Changes the authenticated user's phone number, resets `phoneVerified` to `false`, sends a new SMS verification code, and blocks protected routes until the new number is verified.
+
+For merchants, the phone number is also mirrored to the Merchant record.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Request payload
+
+```json
+{
+  "phone": "+254700000000"
+}
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Phone number changed. Verification code sent by SMS.",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "phone": "+254700000000",
+  "expiresAt": "2026-06-09T10:10:00.000Z"
+}
+```
+
+#### Common errors
+
+```json
+{ "message": "phone must be in international format, for example +254700000000" }
+```
+
+```json
+{ "message": "Too many phone verification code requests. Please try again later.", "retryAfterSeconds": 900 }
 ```
 
 ### `POST /api/auth/login`
@@ -156,6 +296,7 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "name": "Acme Merchants Ltd",
     "email": "merchant@example.com",
     "phone": "+254700000000",
+    "phoneVerified": false,
     "profilePic": "",
     "businessCategory": "Limited Liability Company",
     "registeredBusiness": "Yes",
@@ -164,6 +305,7 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "platformName": "Acme Payments"
   },
   "merchant": { "merchantId": "merchant_xxxxxxxx", "onboardingStatus": "in-progress", "...": "full merchant object" },
+  "verificationRequired": true,
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
 }
@@ -181,6 +323,19 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 ```json
 { "message": "Account is deactivated" }
+```
+
+### Phone Verification Gate
+
+Before `phoneVerified` is true, the user can only log in, call `GET /api/auth/me`, verify the phone code, or request another code. Protected API routes return:
+
+```json
+{
+  "message": "Phone number verification is required before this account can continue",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "phone": "+254700000000"
+}
 ```
 
 ### `GET /api/auth/me`
@@ -1206,10 +1361,10 @@ Marks a message as read for the merchant.
 
 ## Merchant Notifications
 
-Merchant notifications are stored in MongoDB and scoped to the authenticated merchant.
+Merchant notifications are stored in MongoDB and scoped to the authenticated merchant. Each stored notification also sends an SMS to the recipient's saved phone number when `SMS_NOTIFICATIONS_ENABLED=true`.
 The backend creates them automatically during the onboarding lifecycle:
 
-- `merchant-signup`: merchant account created; welcome/thank-you notification
+- `merchant-phone-verified`: merchant verifies phone number; welcome/thank-you notification
 - `onboarding-submitted`: merchant submits completed onboarding for review
 - `checker-review-completed`: checker review is complete and the case is waiting for final approval
 - `merchant-approved`: approver gives final approval
@@ -1235,7 +1390,7 @@ Marks all merchant notifications as read.
 ### Socket.IO events
 
 - `chat:message`: emitted when a checker or approver sends a message in the merchant conversation. For files/images, the event contains attachment metadata and URLs, not raw file binary data.
-- `notification:new`: emitted when a new stored notification is created for the merchant
+- `notification:new`: emitted when a new stored notification is created for the merchant. The same notification is also sent through the SMS provider when enabled.
 
 ## Status Flow Used By Merchant-Side Routes
 

@@ -65,12 +65,13 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 ```json
 {
-  "message": "Approver account created successfully",
+  "message": "Approver account created successfully. Phone verification is required before this account can continue.",
   "user": {
     "userId": "66f1c2a0c2f6a01234567890",
     "name": "John Approver",
     "email": "john@example.com",
     "phone": "+254700000000",
+    "phoneVerified": false,
     "profilePic": "",
     "role": "approver",
     "platformName": "Acme Payments",
@@ -81,6 +82,12 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
     "platformReferenceId": "approver-001",
     "role": "approver",
     "isActive": true
+  },
+  "verificationRequired": true,
+  "phoneVerification": {
+    "sent": true,
+    "expiresAt": "2026-06-09T10:10:00.000Z",
+    "message": "Verification code sent by SMS"
   },
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
@@ -103,6 +110,111 @@ X-Platform-Session-Token: <PLATFORM_SESSION_TOKEN>
 
 ```json
 { "message": "Password must be at least 12 characters long" }
+```
+
+```json
+{ "message": "phone must be in international format, for example +254700000000" }
+```
+
+```json
+{ "message": "Too many signup SMS attempts. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/verify-phone`
+
+Verifies the authenticated approver account using the 6-digit SMS code.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Request payload
+
+```json
+{ "code": "123456" }
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Phone number verified successfully",
+  "verificationRequired": false,
+  "phoneVerified": true
+}
+```
+
+#### Common errors
+
+```json
+{ "message": "Too many phone verification attempts. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/resend-phone-code`
+
+Sends a new SMS verification code to the authenticated approver's saved phone number.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Verification code sent by SMS",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "expiresAt": "2026-06-09T10:10:00.000Z"
+}
+```
+
+#### Common errors
+
+```json
+{ "message": "Too many phone verification code requests. Please try again later.", "retryAfterSeconds": 900 }
+```
+
+### `POST /api/auth/change-phone`
+
+Changes the authenticated approver/admin phone number, resets `phoneVerified` to `false`, sends a new SMS verification code, and blocks protected routes until the new number is verified.
+
+#### Headers
+
+```http
+Authorization: Bearer <sessionToken>
+```
+
+#### Request payload
+
+```json
+{ "phone": "+254700000000" }
+```
+
+#### Successful response
+
+```json
+{
+  "message": "Phone number changed. Verification code sent by SMS.",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "phone": "+254700000000",
+  "expiresAt": "2026-06-09T10:10:00.000Z"
+}
+```
+
+#### Common errors
+
+```json
+{ "message": "phone must be in international format, for example +254700000000" }
+```
+
+```json
+{ "message": "Too many phone verification code requests. Please try again later.", "retryAfterSeconds": 900 }
 ```
 
 ### `POST /api/auth/login`
@@ -133,12 +245,15 @@ X-API-Key: <PLATFORM_API_KEY>
     "userId": "66f1c2a0c2f6a01234567890",
     "name": "John Approver",
     "email": "john@example.com",
+    "phone": "+254700000000",
+    "phoneVerified": false,
     "profilePic": "",
     "role": "approver",
     "platformName": "Acme Payments",
     "platformReferenceId": "approver-001"
   },
   "merchant": null,
+  "verificationRequired": true,
   "sessionToken": "jwt-token-here",
   "expiresIn": "7d"
 }
@@ -156,6 +271,19 @@ X-API-Key: <PLATFORM_API_KEY>
 
 ```json
 { "message": "Account is deactivated" }
+```
+
+### Phone Verification Gate
+
+Before `phoneVerified` is true, the approver or admin can only log in, call `GET /api/auth/me`, verify the phone code, or request another code. Shared review/chat/notification routes return:
+
+```json
+{
+  "message": "Phone number verification is required before this account can continue",
+  "verificationRequired": true,
+  "phoneVerified": false,
+  "phone": "+254700000000"
+}
 ```
 
 ## Shared Review Surface
@@ -235,13 +363,13 @@ Marks a message as read for the approver.
 
 ## Notifications
 
-Approver notifications are stored in MongoDB and scoped to the authenticated approver user.
+Approver notifications are stored in MongoDB and scoped to the authenticated approver user. Admin/reviewer notifications use the same delivery path. Each stored notification also sends an SMS to the recipient's saved phone number when `SMS_NOTIFICATIONS_ENABLED=true`.
 The backend creates them automatically for:
 
 - `merchant-signup`: merchant signs up on the same platform
 - `checker-review-completed`: checker review is complete and the merchant is ready for final approval
 
-Each stored notification emits `notification:new` over Socket.IO.
+Each stored notification emits `notification:new` over Socket.IO and is sent through the SMS provider when enabled.
 
 ### `GET /api/notifications`
 

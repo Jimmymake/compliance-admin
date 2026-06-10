@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '@/lib/auth-context';
+import PhoneVerificationCard from '@/app/components/PhoneVerificationCard';
+import { LoginResult, useAuth } from '@/lib/auth-context';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -11,7 +12,8 @@ export default function LoginForm() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const [pendingVerification, setPendingVerification] = useState<LoginResult | null>(null);
+  const { login, completePhoneVerification } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,7 +22,12 @@ export default function LoginForm() {
     setError('');
 
     try {
-      await login(email, password);
+      const result = await login(email, password);
+      if (result.verificationRequired || result.user.phoneVerified === false) {
+        setPendingVerification(result);
+        return;
+      }
+
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
@@ -28,6 +35,45 @@ export default function LoginForm() {
       setLoading(false);
     }
   };
+
+  if (pendingVerification) {
+    return (
+      <div className="w-full max-w-md">
+        <PhoneVerificationCard
+          sessionToken={pendingVerification.sessionToken}
+          phone={pendingVerification.user.phone}
+          title="Verify your phone"
+          submitLabel="Continue"
+          onVerified={() => {
+            completePhoneVerification({
+              ...pendingVerification,
+              verificationRequired: false,
+              user: {
+                ...pendingVerification.user,
+                phoneVerified: true,
+              },
+            });
+            router.push('/dashboard');
+          }}
+          onPhoneChanged={(phone) => {
+            setPendingVerification({
+              ...pendingVerification,
+              verificationRequired: true,
+              user: {
+                ...pendingVerification.user,
+                phone,
+                phoneVerified: false,
+              },
+            });
+          }}
+          onCancel={() => {
+            setPendingVerification(null);
+            setPassword('');
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md">

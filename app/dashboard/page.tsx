@@ -259,35 +259,65 @@ function MetricCard({
 }
 
 function LineChart({ data }: { data: TrendPoint[] }) {
+  const chartWidth = 600;
+  const chartHeight = 260;
+  const padding = { top: 16, right: 18, bottom: 36, left: 26 };
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = chartHeight - padding.top - padding.bottom;
+  const baseline = padding.top + plotHeight;
   const maxValue = Math.max(1, ...data.map((point) => point.value));
   const points = data.map((point, index) => {
-    const x = data.length === 1 ? 0 : (index / (data.length - 1)) * 100;
-    const y = 100 - (point.value / maxValue) * 84 - 8;
+    const x = padding.left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth);
+    const y = baseline - (point.value / maxValue) * (plotHeight - 14);
 
     return { ...point, x, y };
   });
   const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const areaPath = `${path} L 100 100 L 0 100 Z`;
+  const areaPath = `${path} L ${padding.left + plotWidth} ${baseline} L ${padding.left} ${baseline} Z`;
 
   return (
-    <div className="mt-5 h-64">
-      <svg viewBox="0 0 100 112" className="h-full w-full overflow-visible" role="img" aria-label="Merchant trend chart">
+    <div className="mt-5 h-64 w-full overflow-hidden">
+      <svg
+        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        preserveAspectRatio="none"
+        className="h-full w-full"
+        role="img"
+        aria-label="Merchant trend chart"
+      >
         <defs>
           <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="#6366f1" stopOpacity="0.45" />
             <stop offset="100%" stopColor="#6366f1" stopOpacity="0.05" />
           </linearGradient>
         </defs>
-        {[0, 25, 50, 75, 100].map((y) => (
-          <line key={y} x1="0" x2="100" y1={y} y2={y} stroke="#e2e8f0" strokeWidth="0.35" />
+        {[0, 0.25, 0.5, 0.75, 1].map((step) => (
+          <line
+            key={step}
+            x1={padding.left}
+            x2={padding.left + plotWidth}
+            y1={padding.top + step * plotHeight}
+            y2={padding.top + step * plotHeight}
+            stroke="#e2e8f0"
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
         <path d={areaPath} fill="url(#trendFill)" />
-        <path d={path} fill="none" stroke="#818cf8" strokeWidth="1.1" />
+        <path d={path} fill="none" stroke="#818cf8" strokeWidth="3" vectorEffect="non-scaling-stroke" />
         {points.map((point) => (
-          <circle key={point.label} cx={point.x} cy={point.y} r="1.4" fill="#818cf8" stroke="#c7d2fe" strokeWidth="0.5" />
+          <circle
+            key={point.label}
+            cx={point.x}
+            cy={point.y}
+            r="4"
+            fill="#818cf8"
+            stroke="#c7d2fe"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
         {points.map((point) => (
-          <text key={point.label} x={point.x} y="110" textAnchor="middle" className="fill-slate-400 text-[3px]">
+          <text key={point.label} x={point.x} y={chartHeight - 10} textAnchor="middle" className="fill-slate-400 text-[11px]">
             {point.label}
           </text>
         ))}

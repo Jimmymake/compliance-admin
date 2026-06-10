@@ -8,15 +8,7 @@ export function resolveUploadUrl(url: string) {
   if (/^(blob:|data:)/i.test(url)) return url;
 
   if (/^https?:/i.test(url)) {
-    try {
-      const parsedUrl = new URL(url);
-
-      return parsedUrl.pathname.startsWith('/uploads/') && baseUrl
-        ? `${baseUrl}${parsedUrl.pathname}${parsedUrl.search}`
-        : url;
-    } catch {
-      return url;
-    }
+    return url;
   }
 
   const uploadPath = url.startsWith('/') ? url : `/${url}`;

@@ -20,6 +20,13 @@ export async function readJsonResponse(response: Response) {
   try {
     return JSON.parse(text);
   } catch {
+    const routeMatch = text.match(/<pre>Cannot\s+([A-Z]+)\s+([^<]+)<\/pre>/i);
+    if (routeMatch) {
+      return {
+        message: `Backend endpoint is not available: ${routeMatch[1]} ${routeMatch[2]}`,
+      };
+    }
+
     return { message: text };
   }
 }

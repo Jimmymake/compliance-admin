@@ -7,15 +7,26 @@ interface User {
   email: string;
   name: string;
   role: 'approver' | 'checker' | 'merchant' | 'admin';
+  phone?: string;
+  phoneVerified?: boolean;
   platformName?: string;
   platformReferenceId?: string;
   profilePic?: string;
 }
 
+export interface LoginResult {
+  user: User;
+  sessionToken: string;
+  expiresIn: string;
+  verificationRequired?: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  completePhoneVerification: (result: LoginResult) => void;
+  updateUser: (updates: Partial<User>) => void;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -54,7 +65,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const saveAuthenticatedSession = (data: LoginResult) => {
+    const verifiedUser = { ...data.user, phoneVerified: true };
+    setUser(verifiedUser);
+    localStorage.setItem('session_token', data.sessionToken);
+    localStorage.setItem('user_data', JSON.stringify(verifiedUser));
+    localStorage.setItem('session_expires_in', data.expiresIn);
+    localStorage.removeItem('pending_phone_session_token');
+    localStorage.removeItem('pending_phone_user_data');
+  };
+
+  const savePendingPhoneSession = (data: LoginResult) => {
+    setUser(null);
+    localStorage.removeItem('session_token');
+    localStorage.removeItem('user_data');
+    localStorage.removeItem('session_expires_in');
+    localStorage.setItem('pending_phone_session_token', data.sessionToken);
+    localStorage.setItem('pending_phone_user_data', JSON.stringify(data.user));
+  };
+
+  const login = async (email: string, password: string): Promise<LoginResult> => {
     setLoading(true);
     try {
       const response = await fetch('/api/auth/login', {
@@ -73,13 +103,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('You have no access to this dashboard');
       }
 
-      setUser(data.user);
-      localStorage.setItem('session_token', data.sessionToken);
-      localStorage.setItem('user_data', JSON.stringify(data.user));
-      localStorage.setItem('session_expires_in', data.expiresIn);
+      if (data.verificationRequired || data.user?.phoneVerified === false) {
+        savePendingPhoneSession(data);
+      } else {
+        saveAuthenticatedSession(data);
+      }
+
+      return data;
     } finally {
       setLoading(false);
     }
+  };
+
+  const completePhoneVerification = (result: LoginResult) => {
+    saveAuthenticatedSession(result);
+  };
+
+  const updateUser = (updates: Partial<User>) => {
+    setUser((currentUser) => {
+      if (!currentUser) return currentUser;
+
+      const nextUser = { ...currentUser, ...updates };
+      localStorage.setItem('user_data', JSON.stringify(nextUser));
+      return nextUser;
+    });
   };
 
   const logout = () => {
@@ -88,6 +135,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_data');
     localStorage.removeItem('session_expires_in');
+    localStorage.removeItem('pending_phone_session_token');
+    localStorage.removeItem('pending_phone_user_data');
   };
 
   return (
@@ -96,6 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         login,
+        completePhoneVerification,
+        updateUser,
         logout,
         isAuthenticated: !!user,
       }}

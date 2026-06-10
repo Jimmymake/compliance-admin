@@ -30,23 +30,25 @@ The merchant logs in with a normal user account, fills onboarding forms, submits
 ## End-to-End Flow
 
 1. Merchant signs up with email and password.
-2. Backend creates a `User` record with `role = "merchant"` and a generated `merchantId`.
-3. Backend creates an empty `Merchant` onboarding record if it does not exist.
-4. Merchant logs in with email and password.
-5. JWT includes `userId`, `merchantId`, `role`, `platformId`, `name`, `email`, `profilePic`, `businessCategory`, and `registeredBusiness`.
-6. Merchant lands on the onboarding dashboard.
-7. Merchant fills step 1: company information.
-8. Merchant fills step 2: UBO details.
-9. Merchant fills step 3: payment and processing details.
-10. Merchant fills step 4: settlement bank details.
-11. Merchant fills step 5: risk management details.
-12. Merchant fills step 6: KYC documents.
-13. Each completed step updates `Merchant.onboardingSteps`.
-14. Merchant submits the completed onboarding application.
-15. Backend verifies all steps are complete and changes the record to `awaiting-review`.
-16. Checker reviews the submission.
-17. Approver makes the final decision.
-18. Merchant sees final status as `approved` or `rejected`.
+2. Backend creates a `User` record with `role = "merchant"`, `phoneVerified = false`, and a generated `merchantId`.
+3. Backend sends a 6-digit phone verification code over SMS.
+4. Backend creates an empty `Merchant` onboarding record if it does not exist.
+5. Merchant can log in with email and password, but protected routes are blocked until phone verification succeeds.
+6. JWT includes `userId`, `merchantId`, `role`, `platformId`, `name`, `email`, `profilePic`, `businessCategory`, `registeredBusiness`, and `phoneVerified`.
+7. Merchant verifies the SMS code, backend sets `phoneVerified = true`, and the welcome notification is sent.
+8. Merchant lands on the onboarding dashboard.
+9. Merchant fills step 1: company information.
+10. Merchant fills step 2: UBO details.
+11. Merchant fills step 3: payment and processing details.
+12. Merchant fills step 4: settlement bank details.
+13. Merchant fills step 5: risk management details.
+14. Merchant fills step 6: KYC documents.
+15. Each completed step updates `Merchant.onboardingSteps`.
+16. Merchant submits the completed onboarding application.
+17. Backend verifies all steps are complete and changes the record to `awaiting-review`.
+18. Checker reviews the submission.
+19. Approver makes the final decision.
+20. Merchant sees final status as `approved` or `rejected`.
 
 ## Recommended Status Flow
 
@@ -74,6 +76,9 @@ The merchant logs in with a normal user account, fills onboarding forms, submits
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `POST /api/auth/verify-phone`
+- `POST /api/auth/resend-phone-code`
+- `POST /api/auth/change-phone`
 - `GET /api/dashboard/overview`
 - `GET /api/dashboard/profile`
 - `GET /api/dashboard/timeline`

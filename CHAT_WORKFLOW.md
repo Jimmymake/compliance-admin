@@ -210,3 +210,4 @@ Checker and approver clients receive this when a merchant signs up on their plat
 - Chat history is stored in MongoDB in `conversations` and `messages`.
 - Real-time delivery uses Socket.IO, while REST remains the source of truth for stored history.
 - Attachment upload uses REST multipart form data; Socket.IO only broadcasts the stored message plus attachment metadata/URLs.
+- Stored notifications also use the shared SMS provider when `SMS_NOTIFICATIONS_ENABLED=true`; the default SMS roles are `merchant,checker,approver,admin`.

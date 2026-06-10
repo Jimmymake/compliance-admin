@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { resolveUploadUrl } from '@/lib/upload-url';
 
 type SidebarItem = {
   label: string;
@@ -146,12 +147,18 @@ function SidebarContent() {
         return acc;
       }, {})
   );
+  const [isCollapsed, setIsCollapsed] = useState(() =>
+    typeof window === 'undefined' ? false : window.innerWidth < 1024
+  );
+  const [failedProfilePicUrl, setFailedProfilePicUrl] = useState('');
   const initials = user?.name
     ?.split(' ')
     .map((part) => part[0])
     .join('')
     .slice(0, 2)
     .toUpperCase() ?? 'AS';
+  const profilePicUrl = resolveUploadUrl(user?.profilePic ?? '');
+  const showProfilePic = Boolean(profilePicUrl && failedProfilePicUrl !== profilePicUrl);
   const visibleSections = sections
     .map((section) => ({
       ...section,
@@ -160,6 +167,15 @@ function SidebarContent() {
       ),
     }))
     .filter((section) => section.items.length > 0);
+  const visibleItems = visibleSections.flatMap((section) => section.items);
+
+  const isItemActive = (item: SidebarItem) =>
+    item.active ||
+    (item.status &&
+      pathname === '/dashboard/merchants' &&
+      (searchParams.get('status') ?? 'all') === item.status) ||
+    pathname === item.href ||
+    (item.href !== '/dashboard' && pathname.startsWith(item.href));
 
   const handleLogout = () => {
     logout();
@@ -174,46 +190,69 @@ function SidebarContent() {
   };
 
   return (
-    <aside className="relative flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700">
+    <aside
+      className={`relative flex h-full shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 transition-[width] duration-200 ${
+        isCollapsed ? 'w-16' : 'w-64'
+      }`}
+    >
       <button
         type="button"
-        aria-label="Collapse sidebar"
-        className="absolute -right-3 top-4 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm"
+        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        onClick={() => setIsCollapsed((current) => !current)}
+        className="absolute -right-3 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700"
       >
-        <Icon name="chevronLeft" />
+        <span className={`transition-transform ${isCollapsed ? 'rotate-180' : ''}`}>
+          <Icon name="chevronLeft" />
+        </span>
       </button>
 
-      <nav className="sidebar-scroll min-h-0 flex-1 overflow-y-auto px-3 py-5">
-        <div className="space-y-6">
-          {visibleSections.map((section) => (
-            <div key={section.title}>
-              <button
-                type="button"
-                onClick={() => toggleSection(section.title)}
-                aria-expanded={expandedSections[section.title]}
-                className="mb-3 flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
-              >
-                <span>{section.title}</span>
-                <span
-                  className={`text-base leading-none text-slate-400 transition-transform ${
-                    expandedSections[section.title] ? 'rotate-0' : '-rotate-90'
+      <nav className={`sidebar-scroll min-h-0 flex-1 overflow-y-auto py-5 ${isCollapsed ? 'px-2' : 'px-3'}`}>
+        {isCollapsed ? (
+          <div className="space-y-2">
+            {visibleItems.map((item) => {
+              const isActive = isItemActive(item);
+
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  title={item.label}
+                  aria-label={item.label}
+                  className={`flex h-10 w-10 items-center justify-center rounded-lg transition ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <Icon name="chevronDown" />
-                </span>
-              </button>
+                  <Icon name={item.icon} />
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {visibleSections.map((section) => (
+              <div key={section.title}>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.title)}
+                  aria-expanded={expandedSections[section.title]}
+                  className="mb-3 flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+                >
+                  <span>{section.title}</span>
+                  <span
+                    className={`text-base leading-none text-slate-400 transition-transform ${
+                      expandedSections[section.title] ? 'rotate-0' : '-rotate-90'
+                    }`}
+                  >
+                    <Icon name="chevronDown" />
+                  </span>
+                </button>
 
-              {expandedSections[section.title] && section.items.length > 0 && (
-                <div className="space-y-1">
-                  {section.items.map((item) => (
-                    (() => {
-                      const isActive =
-                        item.active ||
-                        (item.status &&
-                          pathname === '/dashboard/merchants' &&
-                          (searchParams.get('status') ?? 'all') === item.status) ||
-                        pathname === item.href ||
-                        (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                {expandedSections[section.title] && section.items.length > 0 && (
+                  <div className="space-y-1">
+                    {section.items.map((item) => {
+                      const isActive = isItemActive(item);
 
                       return (
                         <Link
@@ -236,28 +275,47 @@ function SidebarContent() {
                           )}
                         </Link>
                       );
-                    })()
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </nav>
 
-      <div className="flex h-[78px] items-center gap-3 border-t border-slate-200 px-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-          {initials}
+      <div
+        className={`flex h-[78px] items-center border-t border-slate-200 ${
+          isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'
+        }`}
+      >
+        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
+          {showProfilePic ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profilePicUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setFailedProfilePicUrl(profilePicUrl)}
+            />
+          ) : (
+            initials
+          )}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{user?.name ?? 'Aigars S.'}</p>
-          <p className="truncate text-xs capitalize text-slate-500">{user?.role ?? 'Admin'}</p>
-        </div>
+        {!isCollapsed && (
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-900">{user?.name ?? 'Aigars S.'}</p>
+            <p className="truncate text-xs capitalize text-slate-500">{user?.role ?? 'Admin'}</p>
+          </div>
+        )}
         <button
           type="button"
           onClick={handleLogout}
           aria-label="Log out"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-slate-900"
+          title="Log out"
+          className={`h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-slate-900 ${
+            isCollapsed ? 'hidden' : 'flex'
+          }`}
         >
           <Icon name="logOut" />
         </button>

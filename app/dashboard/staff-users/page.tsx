@@ -2,9 +2,22 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import PhoneVerificationCard from '@/app/components/PhoneVerificationCard';
 import { useAuth } from '@/lib/auth-context';
 
 type StaffRole = 'checker' | 'approver';
+
+type PendingStaffVerification = {
+  role: StaffRole;
+  email: string;
+  phone?: string;
+  sessionToken: string;
+};
+
+type PasswordPolicyItem = {
+  label: string;
+  valid: boolean;
+};
 
 async function readResponseBody(response: Response) {
   const text = await response.text();
@@ -15,6 +28,54 @@ async function readResponseBody(response: Response) {
   } catch {
     return { message: text };
   }
+}
+
+function buildPasswordPolicy(password: string, email: string): PasswordPolicyItem[] {
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedPassword = password.toLowerCase();
+
+  return [
+    { label: 'At least 12 characters', valid: password.length >= 12 },
+    { label: 'At least 1 uppercase letter', valid: /[A-Z]/.test(password) },
+    { label: 'At least 1 lowercase letter', valid: /[a-z]/.test(password) },
+    { label: 'At least 1 number', valid: /\d/.test(password) },
+    { label: 'At least 1 special character', valid: /[^A-Za-z0-9\s]/.test(password) },
+    { label: 'No spaces-only or empty passwords', valid: password.trim().length > 0 },
+    {
+      label: 'Does not contain your email',
+      valid: !normalizedEmail || !normalizedPassword.includes(normalizedEmail),
+    },
+  ];
+}
+
+function PasswordPolicy({ items }: { items: PasswordPolicyItem[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <p className="mb-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Password Policy</p>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li
+            key={item.label}
+            className={`flex items-center gap-2 text-sm ${
+              item.valid ? 'font-medium text-lime-500' : 'text-slate-500'
+            }`}
+          >
+            <span
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                item.valid
+                  ? 'bg-lime-500 text-white'
+                  : 'border border-slate-300 bg-slate-50 text-slate-400'
+              }`}
+              aria-hidden="true"
+            >
+              {item.valid ? '✓' : '•'}
+            </span>
+            <span>{item.label}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function StaffUsersPage() {
@@ -28,6 +89,9 @@ export default function StaffUsersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [pendingVerification, setPendingVerification] = useState<PendingStaffVerification | null>(null);
+  const passwordPolicyItems = buildPasswordPolicy(password, email);
+  const passwordPolicyPassed = passwordPolicyItems.every((item) => item.valid);
 
   useEffect(() => {
     if (loading) return;
@@ -49,6 +113,10 @@ export default function StaffUsersPage() {
     setMessage('');
 
     try {
+      if (!passwordPolicyPassed) {
+        throw new Error('Password does not meet the required policy');
+      }
+
       const sessionToken = localStorage.getItem('session_token');
       const response = await fetch('/api/auth/staff-signup', {
         method: 'POST',
@@ -73,7 +141,26 @@ export default function StaffUsersPage() {
         throw new Error(typeof data.message === 'string' ? data.message : 'Failed to create staff account');
       }
 
-      setMessage(`${role === 'approver' ? 'Approver' : 'Checker'} account created for ${email}.`);
+      const createdRole = role;
+      const createdEmail = email;
+      const createdPhone = phone;
+
+      if (
+        (data.verificationRequired === true || (data.user as { phoneVerified?: boolean } | undefined)?.phoneVerified === false) &&
+        typeof data.sessionToken === 'string'
+      ) {
+        setPendingVerification({
+          role: createdRole,
+          email: createdEmail,
+          phone: createdPhone,
+          sessionToken: data.sessionToken,
+        });
+        setMessage(`${createdRole === 'approver' ? 'Approver' : 'Checker'} account created. Verify the phone number to activate dashboard access.`);
+      } else {
+        setMessage(`${createdRole === 'approver' ? 'Approver' : 'Checker'} account created for ${createdEmail}.`);
+        setPendingVerification(null);
+      }
+
       setName('');
       setRole('checker');
       setEmail('');
@@ -103,6 +190,27 @@ export default function StaffUsersPage() {
           Create checker or approver accounts for the compliance dashboard.
         </p>
       </div>
+
+      {pendingVerification && (
+        <PhoneVerificationCard
+          sessionToken={pendingVerification.sessionToken}
+          phone={pendingVerification.phone}
+          title={`Verify ${pendingVerification.role === 'approver' ? 'approver' : 'checker'} phone`}
+          description={`Enter the SMS code sent to ${pendingVerification.email}${pendingVerification.phone ? ` at ${pendingVerification.phone}` : ''}.`}
+          submitLabel="Verify Staff Phone"
+          onVerified={() => {
+            setMessage(`${pendingVerification.role === 'approver' ? 'Approver' : 'Checker'} account verified for ${pendingVerification.email}.`);
+            setPendingVerification(null);
+          }}
+          onPhoneChanged={(phone) => {
+            setPendingVerification({
+              ...pendingVerification,
+              phone,
+            });
+          }}
+          onCancel={() => setPendingVerification(null)}
+        />
+      )}
 
       <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         {error && (
@@ -183,6 +291,10 @@ export default function StaffUsersPage() {
             />
           </div>
 
+          <div className="md:col-span-2">
+            <PasswordPolicy items={passwordPolicyItems} />
+          </div>
+
           <div>
             <label htmlFor="phone" className="mb-2 block text-sm font-medium text-slate-700">
               Phone
@@ -194,6 +306,7 @@ export default function StaffUsersPage() {
               onChange={(event) => setPhone(event.target.value)}
               placeholder="+254700000000"
               autoComplete="tel"
+              required
               className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-slate-900 caret-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
@@ -202,7 +315,7 @@ export default function StaffUsersPage() {
         <div className="mt-6 flex justify-end">
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || !passwordPolicyPassed}
             className="h-12 rounded-lg bg-indigo-500 px-6 text-sm font-semibold text-white transition hover:bg-indigo-400 disabled:bg-indigo-200"
           >
             {submitting ? 'Creating account...' : 'Create Account'}
