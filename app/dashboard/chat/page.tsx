@@ -1,7 +1,7 @@
 'use client';
 
 import data from '@emoji-mart/data';
-import Picker from '@emoji-mart/react';
+import { Picker as EmojiMartPicker } from 'emoji-mart';
 import { useAuth } from '@/lib/auth-context';
 import { resolveUploadUrl } from '@/lib/upload-url';
 import Image from 'next/image';
@@ -15,6 +15,46 @@ type Message = RecordValue;
 type EmojiSelection = {
   native?: string;
 };
+type EmojiPickerProps = {
+  data: unknown;
+  onEmojiSelect: (emojiObject: EmojiSelection) => void;
+  theme: 'light' | 'dark' | 'auto';
+  navPosition: 'top' | 'bottom' | 'none';
+  previewPosition: 'top' | 'bottom' | 'none';
+  skinTonePosition: 'search' | 'preview' | 'none';
+  perLine: number;
+};
+
+function EmojiPicker(props: EmojiPickerProps) {
+  const { data, onEmojiSelect, theme, navPosition, previewPosition, skinTonePosition, perLine } = props;
+  const ref = useRef<HTMLDivElement | null>(null);
+  const onEmojiSelectRef = useRef(onEmojiSelect);
+
+  useEffect(() => {
+    onEmojiSelectRef.current = onEmojiSelect;
+  }, [onEmojiSelect]);
+
+  useEffect(() => {
+    const pickerHost = ref.current;
+    const picker = new EmojiMartPicker({
+      data,
+      onEmojiSelect: (emojiObject: EmojiSelection) => onEmojiSelectRef.current(emojiObject),
+      theme,
+      navPosition,
+      previewPosition,
+      skinTonePosition,
+      perLine,
+      ref,
+    });
+
+    return () => {
+      (picker as unknown as Element).remove?.();
+      pickerHost?.replaceChildren();
+    };
+  }, [data, navPosition, perLine, previewPosition, skinTonePosition, theme]);
+
+  return <div ref={ref} />;
+}
 
 function readString(record: RecordValue | undefined, keys: string[], fallback = '') {
   if (!record) return fallback;
@@ -1065,7 +1105,7 @@ function ChatPageContent() {
                   </button>
                   {emojiOpen && (
                     <div className="absolute bottom-16 left-3 z-30 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-                      <Picker
+                      <EmojiPicker
                         data={data}
                         onEmojiSelect={handleSelectEmoji}
                         theme="light"
