@@ -73,8 +73,8 @@ function extractMerchant(payload: unknown): Merchant {
   const record = payload as Record<string, unknown>;
   if (record.merchant && typeof record.merchant === 'object' && !Array.isArray(record.merchant)) {
     return {
-      ...record,
       ...(record.merchant as Merchant),
+      ...record,
     };
   }
 
@@ -152,6 +152,7 @@ const metadataKeys = new Set([
   'id',
   '_id',
   '__v',
+  'v',
   'completed',
   'completedat',
   'createdat',
@@ -176,23 +177,185 @@ const nonStepDataKeys = new Set([
   'timeline',
 ]);
 
-const companyInformationFields = new Set([
-  'companyName',
-  'companyEmail',
-  'dateOfIncorporation',
-  'incorporationNumber',
-  'countryOfIncorporation',
-  'contactPerson',
-  'businessDescription',
-  'sourceOfFunds',
-  'purpose',
-  'licensingRequired',
-  'bankname',
-  'swiftcode',
-  'targetCountries',
-  'topCountries',
-  'previouslyUsedGateways',
-]);
+const companyInformationDisplayFields: { fieldName: string; label: string }[] = [
+  { fieldName: 'companyName', label: 'Company Name' },
+  { fieldName: 'merchantUrls', label: 'Merchant URL(s) (Website)' },
+  { fieldName: 'dateOfIncorporation', label: 'Date of Incorporation/Reg' },
+  { fieldName: 'incorporationNumber', label: 'Company Incorporation/Reg Number' },
+  { fieldName: 'countryOfIncorporation', label: 'Country of Incorporation' },
+  { fieldName: 'companyEmail', label: 'Company Email' },
+  { fieldName: 'contactPerson.fullName', label: 'Contact Person Full Name' },
+  { fieldName: 'contactPerson.phone', label: 'Contact Person Telephone Number' },
+  { fieldName: 'contactPerson.email', label: 'Contact Person Email' },
+  {
+    fieldName: 'businessDescription',
+    label: 'Business Description/Industry (e.g., e-commerce, gaming, financial services, etc.)',
+  },
+  {
+    fieldName: 'sourceOfFunds',
+    label: 'Company Source of Funds and Wealth (e.g., revenue, investments, loans, etc.)',
+  },
+  {
+    fieldName: 'purpose',
+    label:
+      'Purpose and Intended Nature of Business Relationship with Us (e.g., payment processing, settlement services, etc.)',
+  },
+  {
+    fieldName: 'licensingRequired',
+    label: 'Are the Activities of the Company Subject to Licensing?',
+  },
+  {
+    fieldName: 'licenseInfo.licencenumber',
+    label: 'If Yes: License Number',
+  },
+  {
+    fieldName: 'licenseInfo.licencetype',
+    label: 'If Yes: License Type',
+  },
+  {
+    fieldName: 'licenseInfo.jurisdiction',
+    label: 'If Yes: License Jurisdiction',
+  },
+  { fieldName: 'bankname', label: 'Bank Name & Jurisdiction' },
+  { fieldName: 'swiftcode', label: 'BIC/SWIFT Code' },
+  {
+    fieldName: 'targetCountries',
+    label: 'Target Countries of Business (Percentage of Operations)',
+  },
+  { fieldName: 'topCountries', label: 'List Top 5 Countries of Operation' },
+  {
+    fieldName: 'previouslyUsedGateways',
+    label: 'Previously Used Payment Gateways (if applicable) (Name and duration of use)',
+  },
+];
+
+const uboDisplayFields: { fieldName: string; label: string }[] = [
+  { fieldName: 'fullname', label: 'Full Name' },
+  { fieldName: 'nationality', label: 'Nationality' },
+  { fieldName: 'idpassportnumber', label: 'ID/Passport Number' },
+  { fieldName: 'dateofbirth', label: 'Date of Birth' },
+  { fieldName: 'residentialaddress', label: 'Residential Address' },
+  { fieldName: 'percentageofownership', label: 'Percentage of Ownership' },
+  {
+    fieldName: 'sourceoffunds',
+    label: 'Source of Funds and Wealth (e.g., salary, investments, inheritance, etc.)',
+  },
+  { fieldName: 'pep', label: 'Politically Exposed Person (PEP)' },
+  { fieldName: 'pepdetails', label: 'If Yes, provide PEP details' },
+];
+
+const paymentProcessingDisplayFields: { fieldName: string; label: string }[] = [
+  { fieldName: 'requredcurrency.KES', label: 'Required Currencies - KES' },
+  { fieldName: 'requredcurrency.USD', label: 'Required Currencies - USD' },
+  { fieldName: 'requredcurrency.EUR', label: 'Required Currencies - EUR' },
+  { fieldName: 'requredcurrency.GBP', label: 'Required Currencies - GBP' },
+  { fieldName: 'requredcurrency.other', label: 'Required Currencies - Other (Specify)' },
+  {
+    fieldName: 'exmonthlytransaction.amountinusd',
+    label: 'Expected Monthly Transaction Volume - Amount (in USD equivalent)',
+  },
+  {
+    fieldName: 'exmonthlytransaction.numberoftran',
+    label: 'Expected Monthly Transaction Volume - Number of Transactions',
+  },
+  { fieldName: 'avgtranssize', label: 'Average Transaction Size (in USD equivalent)' },
+  {
+    fieldName: 'paymentmethodtobesupported.credit',
+    label: 'Payment Methods to be Supported - Credit/Debit Cards',
+  },
+  {
+    fieldName: 'paymentmethodtobesupported.mobilemoney',
+    label: 'Payment Methods to be Supported - Mobile Money (MoMo)',
+  },
+  {
+    fieldName: 'paymentmethodtobesupported.other',
+    label: 'Payment Methods to be Supported - Other (Specify)',
+  },
+  {
+    fieldName: 'chargebackrefundrate',
+    label: 'Chargeback/Refund Rate (Percentage from previous operations)',
+  },
+];
+
+const settlementBankDisplayFields: { fieldName: string; label: string }[] = [
+  { fieldName: 'nameofbank', label: 'Name of Bank' },
+  { fieldName: 'swiftcode', label: 'SWIFT Code' },
+  { fieldName: 'jurisdiction', label: 'Jurisdiction' },
+  { fieldName: 'settlementcurrency', label: 'Settlement Currency' },
+];
+
+const riskManagementDisplayFields: { fieldName: string; label: string }[] = [
+  {
+    fieldName: 'amlpolicy',
+    label: 'Does the Company Have an AML/KYC Policy in Place?',
+  },
+  { fieldName: 'attachedfile', label: 'AML/KYC Policy Copy (Attach copy if yes)' },
+  { fieldName: 'officerdetails.fullname', label: 'Compliance Officer Details - Full Name' },
+  { fieldName: 'officerdetails.telephonenumber', label: 'Compliance Officer Details - Telephone Number' },
+  { fieldName: 'officerdetails.email', label: 'Compliance Officer Details - Email' },
+  {
+    fieldName: 'historyofregulatoryfine',
+    label: 'History of Regulatory Actions or Fines?',
+  },
+  { fieldName: 'reason', label: 'Regulatory Action or Fine Details (if yes)' },
+  {
+    fieldName: 'hereaboutus',
+    label: 'Where Did You Hear About Us? (e.g., referral, online search, event)',
+  },
+  {
+    fieldName: 'indroducer.name',
+    label: 'Introducer Person/Company (if applicable) - Name',
+  },
+  {
+    fieldName: 'indroducer.position',
+    label: 'Introducer Person/Company (if applicable) - Position',
+  },
+  {
+    fieldName: 'indroducer.date',
+    label: 'Introducer Person/Company (if applicable) - Date',
+  },
+];
+
+const kycDocumentFields: { fieldName: string; label: string }[] = [
+  { fieldName: 'certincorporation', label: '1. Certificate of Incorporation/Registration' },
+  {
+    fieldName: 'cr2forpatnership',
+    label:
+      '2. Memorandum and Articles of Association or its equivalent (CR 2). For Partnerships - Partnership Deed, N/A for Sole Proprietorship',
+  },
+  {
+    fieldName: 'cr2forshareholders',
+    label:
+      '3. CR12 (equivalent of Register of Members/Shareholders; and Directors) (not older than 3 months from the time of onboarding) N/A for Sole Proprietorship and Partnerships',
+  },
+  { fieldName: 'bof1', label: '4. BOF1 form from BRS' },
+  {
+    fieldName: 'kracert',
+    label: '5. Copy of Kenya Revenue Authority PIN certificate for (The Company, for the Director(s))',
+  },
+  {
+    fieldName: 'bankstatement',
+    label:
+      '6. Bank statements for the last 3 months or a crossed cheque. For a new account, a bank reference letter is required',
+  },
+  {
+    fieldName: 'passportids',
+    label:
+      "7. Directors' passport/ID copies (must be colored). For Partnerships, partners' passport/ID copies. For Sole Proprietorship, the proprietor's ID/passport",
+  },
+  { fieldName: 'shareholderpassportid', label: "8. Shareholders' passport/ID copies (must be colored)" },
+  {
+    fieldName: 'websiteipadress',
+    label: '9. Website and Applicable IP addresses (for whitelisting) if applicable',
+  },
+  { fieldName: 'proofofDomain', label: '10. Proof of Domain (where applicable)' },
+  {
+    fieldName: 'proofofadress',
+    label:
+      '11. Proof of address for the director and the company (utility bill or bank statement dated within the last three months)',
+  },
+  { fieldName: 'pepform', label: '12. PEP declaration form' },
+];
 
 function scoreSectionRecord(record: Merchant) {
   const fields = collectFields(record);
@@ -324,15 +487,6 @@ function collectFields(record: Merchant | undefined, prefix = '', fieldPrefix = 
   });
 }
 
-function filterFieldsByRoot(fields: FieldEntry[], allowedRoots: Set<string>) {
-  const normalizedAllowedRoots = new Set(Array.from(allowedRoots, normalizeKey));
-
-  return fields.filter((field) => {
-    const rootField = field.fieldName.split('.')[0];
-    return normalizedAllowedRoots.has(normalizeKey(rootField));
-  });
-}
-
 function filterDisplayFields(fields: FieldEntry[]) {
   return fields.filter((field) => {
     const normalizedFieldName = normalizeKey(field.fieldName);
@@ -345,6 +499,119 @@ function filterDisplayFields(fields: FieldEntry[]) {
       !metadataKeys.has(rootField)
     );
   });
+}
+
+function readNormalizedRecordValue(record: Merchant | undefined, fieldName: string) {
+  if (!record) return undefined;
+  const expectedKey = normalizeKey(fieldName);
+  const entry = Object.entries(record).find(([key]) => normalizeKey(key) === expectedKey);
+  return entry?.[1];
+}
+
+function readRecordPathValue(record: Merchant | undefined, fieldName: string) {
+  if (!record) return undefined;
+
+  return fieldName.split('.').reduce<unknown>((current, pathPart) => {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    return readNormalizedRecordValue(current as Merchant, pathPart);
+  }, record);
+}
+
+function collectCompanyInformationFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(
+    companyInformationDisplayFields.map(({ fieldName }) => normalizeKey(fieldName.split('.')[0]))
+  );
+  const expectedFields = companyInformationDisplayFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readRecordPathValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function collectUboFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(uboDisplayFields.map(({ fieldName }) => normalizeKey(fieldName)));
+  const expectedFields = uboDisplayFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readRecordPathValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function collectPaymentProcessingFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(
+    paymentProcessingDisplayFields.map(({ fieldName }) => normalizeKey(fieldName.split('.')[0]))
+  );
+  const expectedFields = paymentProcessingDisplayFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readRecordPathValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function collectSettlementBankFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(settlementBankDisplayFields.map(({ fieldName }) => normalizeKey(fieldName)));
+  const expectedFields = settlementBankDisplayFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readRecordPathValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function collectRiskManagementFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(
+    riskManagementDisplayFields.map(({ fieldName }) => normalizeKey(fieldName.split('.')[0]))
+  );
+  const expectedFields = riskManagementDisplayFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readRecordPathValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function collectKycFields(record: Merchant | undefined) {
+  const expectedKeys = new Set(kycDocumentFields.map(({ fieldName }) => normalizeKey(fieldName)));
+  const expectedFields = kycDocumentFields.map(({ fieldName, label }) => ({
+    fieldName,
+    label,
+    value: formatValue(readNormalizedRecordValue(record, fieldName)),
+  }));
+  const extraFields = filterDisplayFields(collectFields(record)).filter(
+    (field) => !expectedKeys.has(normalizeKey(field.fieldName.split('.')[0]))
+  );
+
+  return [...expectedFields, ...extraFields];
+}
+
+function prefixFieldNames(fields: FieldEntry[], prefix: string) {
+  return fields.map((field) => ({
+    ...field,
+    fieldName: `${prefix}.${field.fieldName}`,
+  }));
 }
 
 function readMerchantName(merchant: Merchant) {
@@ -478,8 +745,22 @@ function readNoteDate(note: FieldNote) {
   return readDate(note, ['createdAt', 'created_at', 'updatedAt']);
 }
 
+function readNoteAuthor(note: FieldNote) {
+  const name = readString(note, ['createdByName', 'authorName', 'adminName', 'reviewerName', 'createdBy'], '');
+  const role = readString(note, ['createdByRole', 'authorRole', 'role'], '');
+
+  if (name && role) return `${name} (${formatLabel(role)})`;
+  if (name) return name;
+  if (role) return formatLabel(role);
+  return 'Unknown author';
+}
+
 function normalizeFieldName(fieldName: string) {
   return normalizeKey(fieldName);
+}
+
+function canMatchNoteByLabel(fieldName: string) {
+  return !fieldName.includes('[');
 }
 
 function noteMatchesField(note: FieldNote, stepName: string, fieldName: string, label: string) {
@@ -489,7 +770,7 @@ function noteMatchesField(note: FieldNote, stepName: string, fieldName: string, 
   const stepMatches = !noteStep || normalizeKey(noteStep) === normalizeKey(stepName);
   const fieldMatches =
     normalizeFieldName(noteField) === normalizeFieldName(fieldName) ||
-    normalizeFieldName(noteField) === normalizeFieldName(label);
+    (canMatchNoteByLabel(fieldName) && normalizeFieldName(noteField) === normalizeFieldName(label));
 
   return stepMatches && fieldMatches;
 }
@@ -506,7 +787,7 @@ function getNestedFieldNotes(currentFieldNotes: Merchant, stepName: string, fiel
     const normalizedKey = normalizeFieldName(key);
     return (
       normalizedKey === normalizeFieldName(fieldName) ||
-      normalizedKey === normalizeFieldName(label)
+      (canMatchNoteByLabel(fieldName) && normalizedKey === normalizeFieldName(label))
     );
   });
   const fieldNotes = fieldEntry?.[1];
@@ -571,21 +852,48 @@ function NoteIcon({ className = 'h-4 w-4' }: { className?: string }) {
 
 function isWebUrl(value: string) {
   try {
-    const url = new URL(value);
+    const url = new URL(encodeURI(value));
     return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {
     return false;
   }
 }
 
+function extractWebUrls(value: string) {
+  return value
+    .split(/(?:;\s*|,\s*)(?=https?:\/\/)/i)
+    .map((url) => url.trim())
+    .filter(isWebUrl);
+}
+
 function FieldValue({ value }: { value: string }) {
+  const webUrls = extractWebUrls(value);
+
+  if (webUrls.length > 1) {
+    return (
+      <div className="mt-2 space-y-1">
+        {webUrls.map((url) => (
+          <a
+            key={url}
+            href={resolveUploadUrl(encodeURI(url))}
+            target="_blank"
+            rel="noreferrer"
+            className="block break-words text-sm font-medium text-indigo-600 transition hover:text-indigo-500 hover:underline"
+          >
+            {url}
+          </a>
+        ))}
+      </div>
+    );
+  }
+
   if (!isWebUrl(value)) {
     return <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>;
   }
 
   return (
     <a
-      href={value}
+      href={resolveUploadUrl(encodeURI(value))}
       target="_blank"
       rel="noreferrer"
       className="mt-2 block break-words text-sm font-medium text-indigo-600 transition hover:text-indigo-500 hover:underline"
@@ -595,14 +903,16 @@ function FieldValue({ value }: { value: string }) {
   );
 }
 
-function DetailField({
+function UrlFieldItem({
+  url,
   label,
-  value,
+  fieldName,
   notes,
   onSubmitNote,
 }: {
+  url: string;
   label: string;
-  value: string;
+  fieldName: string;
   notes?: FieldNote[];
   onSubmitNote?: (fieldName: string, message: string, file: File | null) => Promise<void>;
 }) {
@@ -624,7 +934,7 @@ function DetailField({
     setFeedback('');
 
     try {
-      await onSubmitNote?.(label, message.trim(), file);
+      await onSubmitNote?.(fieldName, message.trim(), file);
       setMessage('');
       setFile(null);
       setShowNote(false);
@@ -637,10 +947,183 @@ function DetailField({
   };
 
   return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <a
+          href={resolveUploadUrl(encodeURI(url))}
+          target="_blank"
+          rel="noreferrer"
+          className="min-w-0 break-words text-sm font-medium text-indigo-600 transition hover:text-indigo-500 hover:underline"
+        >
+          {url}
+        </a>
+        {onSubmitNote && (
+          <div className="flex shrink-0 items-center gap-2">
+            {showNote && (
+              <label
+                title="Add file"
+                aria-label={`Add file for ${label}`}
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600"
+              >
+                <PaperclipIcon />
+                <input
+                  type="file"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  className="sr-only"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              title={showNote ? 'Close note' : 'Add note'}
+              aria-label={showNote ? `Close note for ${label}` : `Add note for ${label}`}
+              onClick={() => {
+                setShowNote((current) => !current);
+                setError('');
+                setFeedback('');
+              }}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-600 transition hover:border-indigo-300 hover:text-indigo-500"
+            >
+              <NoteIcon />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {notes && notes.length > 0 && (
+        <NoteList notes={notes} />
+      )}
+
+      {showNote && (
+        <div className="mt-3 space-y-3">
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            rows={3}
+            placeholder={`Add note for ${label}...`}
+            className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-500 focus:border-indigo-400"
+          />
+          <div className="flex items-center justify-between gap-3">
+            {file && (
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-600">
+                {file.name}
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={submitNote}
+              title="Save note"
+              aria-label={`Save note for ${label}`}
+              className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white transition hover:bg-indigo-500 disabled:bg-indigo-200"
+            >
+              <NoteIcon />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {feedback && <p className="mt-2 text-xs font-medium text-indigo-600">{feedback}</p>}
+      {error && <p className="mt-2 text-xs font-medium text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+function NoteList({ notes }: { notes: FieldNote[] }) {
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-indigo-100 bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">Notes</p>
+      {notes.map((note, index) => {
+        const attachments = getAttachments(note);
+        const noteMessage = readNoteMessage(note);
+        const noteAuthor = readNoteAuthor(note);
+
+        return (
+          <div
+            key={`${readNoteDate(note)}-${index}`}
+            className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0"
+          >
+            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-slate-500">
+              <span>{noteAuthor}</span>
+              <span aria-hidden="true">•</span>
+              <span>{readNoteDate(note)}</span>
+            </div>
+            {noteMessage && <p className="break-words text-xs leading-5 text-slate-700">{noteMessage}</p>}
+            {attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {attachments.map((attachment) => (
+                  <a
+                    key={attachment.url}
+                    href={resolveUploadUrl(attachment.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
+                  >
+                    {attachment.originalName}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+  fieldName,
+  notes,
+  getFieldNotes,
+  onSubmitNote,
+}: {
+  label: string;
+  value: string;
+  fieldName: string;
+  notes?: FieldNote[];
+  getFieldNotes?: (fieldName: string, label: string) => FieldNote[];
+  onSubmitNote?: (fieldName: string, message: string, file: File | null) => Promise<void>;
+}) {
+  const [showNote, setShowNote] = useState(false);
+  const [message, setMessage] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [error, setError] = useState('');
+
+  const submitNote = async () => {
+    if (!message.trim() && !file) {
+      setError('Add a note or attach a file before submitting.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    setFeedback('');
+
+    try {
+      await onSubmitNote?.(fieldName, message.trim(), file);
+      setMessage('');
+      setFile(null);
+      setShowNote(false);
+      setFeedback('Note added.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add note.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const webUrls = extractWebUrls(value);
+  const hasSeparateUrlNotes = webUrls.length > 1;
+
+  return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
       <div className="flex items-start justify-between gap-3">
         <p className="min-w-0 text-xs font-medium uppercase tracking-[0.12em] text-slate-500">{label}</p>
-        {onSubmitNote && (
+        {onSubmitNote && !hasSeparateUrlNotes && (
           <div className="flex shrink-0 items-center gap-2">
             {showNote && (
               <label
@@ -672,46 +1155,29 @@ function DetailField({
           </div>
         )}
       </div>
-      <FieldValue value={value} />
-      {notes && notes.length > 0 && (
-        <div className="mt-3 space-y-2 rounded-lg border border-indigo-100 bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">
-            Notes
-          </p>
-          {notes.map((note, index) => {
-            const attachments = getAttachments(note);
-            const noteMessage = readNoteMessage(note);
+      {hasSeparateUrlNotes ? (
+        <div className="mt-2 space-y-2">
+          {webUrls.map((url, index) => {
+            const urlFieldName = `${fieldName}[${index}]`;
+            const urlLabel = `${label} ${index + 1}`;
 
             return (
-              <div
-                key={`${readNoteDate(note)}-${index}`}
-                className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0"
-              >
-                {noteMessage && (
-                  <p className="break-words text-xs leading-5 text-slate-700">{noteMessage}</p>
-                )}
-                {attachments.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {attachments.map((attachment) => (
-                      <a
-                        key={attachment.url}
-                        href={resolveUploadUrl(attachment.url)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
-                      >
-                        {attachment.originalName}
-                      </a>
-                    ))}
-                  </div>
-                )}
-                <p className="mt-2 text-[11px] text-slate-500">{readNoteDate(note)}</p>
-              </div>
+              <UrlFieldItem
+                key={`${urlFieldName}-${url}`}
+                url={url}
+                label={urlLabel}
+                fieldName={urlFieldName}
+                notes={getFieldNotes?.(urlFieldName, urlLabel)}
+                onSubmitNote={onSubmitNote}
+              />
             );
           })}
         </div>
+      ) : (
+        <FieldValue value={value} />
       )}
-      {onSubmitNote && (
+      {!hasSeparateUrlNotes && notes && notes.length > 0 && <NoteList notes={notes} />}
+      {onSubmitNote && !hasSeparateUrlNotes && (
         <div className="mt-3">
           {showNote && (
             <div className="mt-3 space-y-3">
@@ -755,34 +1221,50 @@ function FieldSection({
   fields,
   getFieldNotes,
   onSubmitNote,
+  framed = true,
+  showTitle = true,
+  layout = 'columns',
 }: {
   title: string;
   fields: FieldEntry[];
   getFieldNotes?: (fieldName: string, label: string) => FieldNote[];
   onSubmitNote?: (fieldName: string, message: string, file: File | null) => Promise<void>;
+  framed?: boolean;
+  showTitle?: boolean;
+  layout?: 'columns' | 'vertical';
 }) {
+  const fieldListClass =
+    layout === 'vertical'
+      ? `${showTitle ? 'mt-4 ' : ''}space-y-4`
+      : `${showTitle ? 'mt-4 ' : ''}columns-1 gap-4 md:columns-2`;
+  const fieldItemClass = layout === 'vertical' ? '' : 'mb-4 break-inside-avoid';
+
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+    <section className={framed ? 'rounded-lg border border-slate-200 bg-white p-5 shadow-sm' : ''}>
+      {showTitle && <h2 className="text-lg font-semibold text-slate-900">{title}</h2>}
       {fields.length === 0 ? (
-        <div className="mt-4">
+        <div className={showTitle ? 'mt-4' : ''}>
           <DetailField
             label={title}
             value="—"
+            fieldName={title}
             notes={getFieldNotes?.(title, title)}
+            getFieldNotes={getFieldNotes}
             onSubmitNote={onSubmitNote}
           />
         </div>
       ) : (
-        <div className="mt-4 columns-1 gap-4 md:columns-2">
+        <div className={fieldListClass}>
           {fields.map((field) => (
-            <div key={field.fieldName} className="mb-4 break-inside-avoid">
+            <div key={field.fieldName} className={fieldItemClass}>
               <DetailField
                 label={field.label}
                 value={field.value}
+                fieldName={field.fieldName}
                 notes={getFieldNotes?.(field.fieldName, field.label)}
+                getFieldNotes={getFieldNotes}
                 onSubmitNote={(fieldName, message, file) =>
-                  onSubmitNote?.(field.fieldName || fieldName, message, file) ?? Promise.resolve()
+                  onSubmitNote?.(fieldName || field.fieldName, message, file) ?? Promise.resolve()
                 }
               />
             </div>
@@ -899,16 +1381,22 @@ export default function MerchantDetailPage() {
 
   const activeStepContent = useMemo(() => {
     if (activeTab === 'companyinformation') {
-      const companyFields = collectFields(
-        getSectionRecord(merchant, ['companyInformation', 'companyinformation', 'companyInfo', 'companyinfor', 'company'])
-      );
+      const companyRecord = getSectionRecord(merchant, [
+        'companyInformation',
+        'companyinformation',
+        'companyInfo',
+        'companyinfor',
+        'company',
+      ]);
+      const companyFields = collectCompanyInformationFields(companyRecord);
 
       return (
         <FieldSection
           title="Company Information"
-          fields={filterFieldsByRoot(companyFields, companyInformationFields)}
+          fields={companyFields}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
+          layout="vertical"
         />
       );
     }
@@ -930,20 +1418,23 @@ export default function MerchantDetailPage() {
               <DetailField
                 label="UBO Details"
                 value="—"
+                fieldName="ubo"
                 notes={getFieldNotes('ubo', 'UBO Details')}
+                getFieldNotes={getFieldNotes}
                 onSubmitNote={submitFieldNote}
               />
-            ) : (
-              uboData.map((uboItem, index) => (
-                <FieldSection
-                  key={index}
-                  title={`UBO ${index + 1}`}
-                  fields={filterDisplayFields(collectFields(uboItem as Merchant))}
-                  getFieldNotes={getFieldNotes}
-                  onSubmitNote={submitFieldNote}
-                />
-              ))
-            )}
+	            ) : (
+	              uboData.map((uboItem, index) => (
+	                <FieldSection
+	                  key={index}
+	                  title={`UBO ${index + 1}`}
+	                  fields={prefixFieldNames(collectUboFields(uboItem as Merchant), `ubo[${index}]`)}
+	                  getFieldNotes={getFieldNotes}
+	                  onSubmitNote={submitFieldNote}
+	                  layout="vertical"
+	                />
+	              ))
+	            )}
           </section>
         );
       }
@@ -963,16 +1454,21 @@ export default function MerchantDetailPage() {
     }
 
     if (activeTab === 'paymentandprosessing') {
+      const paymentRecord = getSectionRecord(merchant, [
+        'paymentandprosessing',
+        'paymentProcessing',
+        'paymentinfo',
+        'payment',
+      ]);
+      const paymentFields = collectPaymentProcessingFields(paymentRecord);
+
       return (
         <FieldSection
           title="Payment & Processing"
-          fields={filterDisplayFields(
-            collectFields(
-              getSectionRecord(merchant, ['paymentandprosessing', 'paymentProcessing', 'paymentinfo', 'payment'])
-            )
-          )}
+          fields={paymentFields}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
+          layout="vertical"
         />
       );
     }
@@ -988,17 +1484,27 @@ export default function MerchantDetailPage() {
         return (
           <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900">Settlement Bank Details</h2>
-            {settlementData.map((settlementItem, index) => (
-              <FieldSection
-                key={index}
-                title={`Settlement Account ${index + 1}`}
-                fields={
-                  typeof settlementItem === 'string'
-                    ? [{ label: 'Settlement Account', value: settlementItem, fieldName: 'settlementAccount' }]
-                    : filterDisplayFields(collectFields(settlementItem as Merchant))
-                }
-                getFieldNotes={getFieldNotes}
-                onSubmitNote={submitFieldNote}
+	            {settlementData.map((settlementItem, index) => (
+	              <FieldSection
+	                key={index}
+	                title={`Bank ${index + 1}`}
+	                fields={
+	                  typeof settlementItem === 'string'
+	                    ? [
+	                        {
+	                          label: 'Settlement Account',
+	                          value: settlementItem,
+	                          fieldName: `settlementbankdetail[${index}].settlementAccount`,
+	                        },
+	                      ]
+	                    : prefixFieldNames(
+	                        collectSettlementBankFields(settlementItem as Merchant),
+	                        `settlementbankdetail[${index}]`
+	                      )
+	                }
+	                getFieldNotes={getFieldNotes}
+	                onSubmitNote={submitFieldNote}
+	                layout="vertical"
               />
             ))}
           </section>
@@ -1008,40 +1514,39 @@ export default function MerchantDetailPage() {
       return (
         <FieldSection
           title="Settlement Bank Details"
-          fields={filterDisplayFields(
-            collectFields(
-              getSectionRecord(merchant, [
-                'settlementbankdetail',
-                'settlementbankdetails',
-                'settlmentbankdetails',
-                'settlement',
-              ])
-            )
+          fields={collectSettlementBankFields(
+            getSectionRecord(merchant, [
+              'settlementbankdetail',
+              'settlementbankdetails',
+              'settlmentbankdetails',
+              'settlement',
+            ])
           )}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
+          layout="vertical"
         />
       );
     }
 
     if (activeTab === 'riskmanagement') {
+      const riskRecord = getSectionRecord(merchant, ['riskmanagement', 'riskManagement', 'riskmanagementinfo', 'risk']);
+      const riskFields = collectRiskManagementFields(riskRecord);
+
       return (
         <FieldSection
           title="Risk Management"
-          fields={filterDisplayFields(
-            collectFields(
-              getSectionRecord(merchant, ['riskmanagement', 'riskManagement', 'riskmanagementinfo', 'risk'])
-            )
-          )}
+          fields={riskFields}
           getFieldNotes={getFieldNotes}
           onSubmitNote={submitFieldNote}
+          layout="vertical"
         />
       );
     }
 
     if (activeTab === 'kycdocs') {
       const kycRecord = getSectionRecord(merchant, ['kycdocs', 'kycDocs', 'kycinfo', 'kyc']);
-      const kycFields = filterDisplayFields(collectFields(kycRecord));
+      const kycFields = collectKycFields(kycRecord);
 
       return (
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -1052,6 +1557,9 @@ export default function MerchantDetailPage() {
               fields={kycFields}
               getFieldNotes={getFieldNotes}
               onSubmitNote={submitFieldNote}
+              framed={false}
+              showTitle={false}
+              layout="vertical"
             />
           </div>
         </section>
@@ -1200,27 +1708,9 @@ export default function MerchantDetailPage() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
         <label className="block">
-          <span className="text-sm font-medium text-slate-500">Step</span>
-          <select
-            value={currentReviewStep}
-            onChange={(event) => {
-              setStepName(event.target.value);
-              setActiveTab(event.target.value);
-            }}
-            className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-400"
-          >
-            {reviewSteps.map((step) => (
-              <option key={step} value={step}>
-                {stepLabels[step]}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="block lg:col-span-2">
-          <span className="text-sm font-medium text-slate-500">Step Note</span>
+          <span className="text-sm font-medium text-slate-500">Note</span>
           <textarea
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -1229,50 +1719,50 @@ export default function MerchantDetailPage() {
             className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-indigo-400"
           />
         </label>
-      </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        {canCheck && (
-          <button
-            type="button"
-            disabled={action.loading}
-            onClick={() =>
-              sendAction(
-                `/api/admin/merchants/${encodeURIComponent(merchantId)}/steps/${encodeURIComponent(
-                  currentReviewStep
-                )}/review`,
-                { note }
-              )
-            }
-            className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:bg-slate-200 disabled:text-slate-500"
-          >
-            Review Step
-          </button>
-        )}
+        <div className="flex flex-col gap-3">
+          {canCheck && (
+            <button
+              type="button"
+              disabled={action.loading}
+              onClick={() =>
+                sendAction(
+                  `/api/admin/merchants/${encodeURIComponent(merchantId)}/steps/${encodeURIComponent(
+                    currentReviewStep
+                  )}/review`,
+                  { note }
+                )
+              }
+              className="h-11 rounded-lg bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:bg-slate-200 disabled:text-slate-500"
+            >
+              Review
+            </button>
+          )}
 
-        {canApprove && (
-          <button
-            type="button"
-            disabled={action.loading}
-            onClick={() =>
-              sendAction(
-                `/api/admin/merchants/${encodeURIComponent(merchantId)}/steps/${encodeURIComponent(
-                  currentReviewStep
-                )}/approve`,
-                { note }
-              )
-            }
-            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:bg-slate-200 disabled:text-slate-500"
-          >
-            Approve Step
-          </button>
-        )}
+          {canApprove && (
+            <button
+              type="button"
+              disabled={action.loading}
+              onClick={() =>
+                sendAction(
+                  `/api/admin/merchants/${encodeURIComponent(merchantId)}/steps/${encodeURIComponent(
+                    currentReviewStep
+                  )}/approve`,
+                  { note }
+                )
+              }
+              className="h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white transition hover:bg-emerald-400 disabled:bg-slate-200 disabled:text-slate-500"
+            >
+              Approve
+            </button>
+          )}
 
-        {!canCheck && !canApprove && (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500 md:col-span-3">
-            No step actions are available for this role.
-          </p>
-        )}
+          {!canCheck && !canApprove && (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+              No step actions are available for this role.
+            </p>
+          )}
+        </div>
       </div>
     </section>
   );
